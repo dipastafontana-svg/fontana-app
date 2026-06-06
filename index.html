@@ -698,12 +698,20 @@ function setSyncState(state,msg){
 }
 
 async function sheetGet(key){
-  const r=await fetch(`${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${Date.now()}`);
+  const r=await fetch(`${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${Date.now()}`, {
+    method: "GET",
+    redirect: "follow",
+  });
   const txt=await r.text();
   return txt==="null"?null:JSON.parse(txt);
 }
 async function sheetSet(key,val){
-  await fetch(SCRIPT_URL,{method:"POST",body:JSON.stringify({key,value:JSON.stringify(val)})});
+  await fetch(SCRIPT_URL, {
+    method: "POST",
+    redirect: "follow",
+    headers: {"Content-Type": "text/plain"},
+    body: JSON.stringify({key, value: JSON.stringify(val)})
+  });
 }
 
 async function loadFromSheets(){
@@ -2232,9 +2240,8 @@ patchArrayUnshift(expenses, ()=>{});
 
 // ─── Patch renderVentas para mostrar chip de usuario ───
 const _origRenderVentas = renderVentas;
-function renderVentas(){
+renderVentas = function(){
   _origRenderVentas();
-  // Inject user chips después del render
   document.querySelectorAll("#ventas-list .row").forEach((row, i)=>{
     const m = document.getElementById("v-filter").value || month();
     const filtered = sales.filter(s=>s.date.startsWith(m));
@@ -2245,11 +2252,11 @@ function renderVentas(){
       }
     }
   });
-}
+};
 
 // ─── Patch renderPedidos para mostrar chip de usuario ───
 const _origRenderPedidos = renderPedidos;
-function renderPedidos(){
+renderPedidos = function(){
   _origRenderPedidos();
   document.querySelectorAll("#pedidos-list .pedido-card").forEach((card, i)=>{
     const filterStatus = document.getElementById("p-filter-status").value;
@@ -2264,7 +2271,7 @@ function renderPedidos(){
       }
     }
   });
-}
+};
 
 // ─── Config modal para URL del script ───
 function openScriptConfig(){
@@ -2371,7 +2378,7 @@ function dismissIosHint(){
 }
 
 const _origRenderGastos = renderGastos;
-function renderGastos(){
+renderGastos = function(){
   _origRenderGastos();
   const m = document.getElementById("g-filter").value || month();
   const filtered = expenses.filter(e=>e.date.startsWith(m));
@@ -2383,7 +2390,7 @@ function renderGastos(){
       }
     }
   });
-}
+};
 </script>
 </body>
 </html>
