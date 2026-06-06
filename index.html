@@ -226,6 +226,7 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
       <span class="dot" id="sync-dot"></span>
       <span id="sync-lbl">Conectando...</span>
       <button onclick="manualSync()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif">↻</button>
+      <button onclick="openScriptConfig()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Configurar URL">⚙️</button>
     </div>
     <div class="user-badge" id="user-badge" onclick="openUserModal()">
       <div class="user-avatar" id="user-avatar-sm"></div>
@@ -550,6 +551,20 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
     <div style="display:flex;gap:8px">
       <button class="btn btn-secondary" onclick="copyWAtext()" style="flex:1">📋 Copiar texto</button>
       <button class="btn btn-primary" onclick="sendWA()" style="flex:1">📲 Abrir WhatsApp</button>
+    </div>
+  </div>
+</div>
+
+<!-- SCRIPT CONFIG MODAL -->
+<div id="script-config-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9996;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:600px;font-family:sans-serif">
+    <div style="font-size:16px;font-weight:700;color:#3d2b1f;margin-bottom:6px">⚙️ Conectar Google Sheets</div>
+    <div style="font-size:12px;color:#aaa;margin-bottom:16px">Pegá la URL de tu Apps Script para sincronizar entre dispositivos</div>
+    <label style="font-size:10px;color:#bbb;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;display:block">URL del Apps Script</label>
+    <input id="script-config-input" type="url" placeholder="https://script.google.com/macros/s/.../exec" style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid #f0ddd0;font-size:13px;font-family:sans-serif;margin-bottom:14px"/>
+    <div style="display:flex;gap:8px">
+      <button onclick="closeScriptConfig()" style="flex:1;padding:12px;border:1.5px solid #f0ddd0;border-radius:10px;font-size:14px;font-weight:600;background:#fff;color:#7a2d10;cursor:pointer">Cancelar</button>
+      <button onclick="saveScriptConfig()" style="flex:1;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;background:linear-gradient(135deg,#c4622d,#e8956d);color:#fff;cursor:pointer">✓ Guardar y conectar</button>
     </div>
   </div>
 </div>
@@ -1778,7 +1793,7 @@ function updateCfgTotal(){
 
 // ─── Patch renderHome para stat de margen ────────
 const _origRenderHome = renderHome;
-function renderHome(){
+const _patchedRenderHome = function(){
   _origRenderHome();
   const prodConCosto = products.filter(p => calcCostoProducto(p.id) !== null);
   if(prodConCosto.length){
@@ -1796,7 +1811,8 @@ function renderHome(){
       grid.appendChild(extra);
     }
   }
-}
+};
+renderHome = _patchedRenderHome;
 
 // ═══════════════════════════════════════════════
 //  WHATSAPP — mensajería dinámica
@@ -1976,7 +1992,7 @@ function injectPWAManifest(){
     name: "Fontana di Pasta",
     short_name: "Fontana",
     description: "Gestión de pedidos, ventas, stock y costos",
-    start_url: "./",
+    start_url: location.href.split("?")[0],
     display: "standalone",
     background_color: "#FDF6EC",
     theme_color: "#7a2d10",
@@ -2249,6 +2265,31 @@ function renderPedidos(){
     }
   });
 }
+
+// ─── Config modal para URL del script ───
+function openScriptConfig(){
+  const ov = document.getElementById("script-config-overlay");
+  const inp = document.getElementById("script-config-input");
+  inp.value = SCRIPT_URL || "";
+  ov.style.display = "flex";
+  setTimeout(()=>inp.focus(), 100);
+}
+function closeScriptConfig(){
+  document.getElementById("script-config-overlay").style.display = "none";
+}
+function saveScriptConfig(){
+  const v = document.getElementById("script-config-input").value.trim();
+  if(!v){ toast("⚠️ Pegá la URL del Apps Script"); return; }
+  SCRIPT_URL = v;
+  localStorage.setItem("fdp_script_url", v);
+  document.getElementById("setup-panel").style.display = "none";
+  closeScriptConfig();
+  toast("✓ URL guardada — conectando...");
+  loadFromSheets();
+}
+document.getElementById("script-config-overlay").addEventListener("click", function(e){
+  if(e.target === this) closeScriptConfig();
+});
 
 // ═══════════════════════════════════════════════
 //  PWA — INSTALACIÓN (banner + iOS hint)
