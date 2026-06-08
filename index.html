@@ -244,9 +244,7 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
     <div style="display:flex;align-items:center;gap:6px">
       <span class="dot" id="sync-dot"></span>
       <span id="sync-lbl">Conectando...</span>
-      <button onclick="manualSync()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Sincronizar (bajar del servidor)">↻</button>
-      <button onclick="forceUploadLocal()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Subir mis datos al servidor">⬆</button>
-      <button onclick="clearLocalAndReload()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Limpiar cache y recargar del servidor">🗑</button>
+      <button onclick="manualSync()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:13px;font-family:sans-serif" title="Sincronizar">↻</button>
       <button onclick="openScriptConfig()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Configurar URL">⚙️</button>
     </div>
     <div class="user-badge" id="user-badge" onclick="openUserModal()">
@@ -900,9 +898,19 @@ async function loadFromSheets(){
       sheetGet("fdp_insumos"),
     ]);
 
-    // Aplicar datos del Sheet — siempre ganan sobre el cache local
-    // Si el Sheet devuelve null para una clave, la dejamos como está (primera vez)
-    if(Array.isArray(p))   products     = p;
+    // Productos: ignorar si el Sheet tiene los productos de ejemplo viejos
+    const NOMBRES_VIEJOS = ["Tallarines","Ñoquis","Ravioles de ricota","Empanadas de carne",
+      "Empanadas de pollo","Empanadas de verdura","Pre pizza muzarella","Pre pizza especial","Salsa bolognesa"];
+    if(Array.isArray(p)){
+      const tieneViejos = p.some(x => NOMBRES_VIEJOS.includes(x.name));
+      if(tieneViejos){
+        // El Sheet tiene basura vieja — ignorar y subir los datos locales limpios
+        await sheetSet("fdp_products", products);
+      } else {
+        products = p;
+      }
+    }
+
     if(Array.isArray(s))   sales        = s;
     if(Array.isArray(e))   expenses     = e;
     if(Array.isArray(c))   clients      = c;
@@ -913,15 +921,13 @@ async function loadFromSheets(){
     if(Array.isArray(rec)) recetas      = rec;
     if(Array.isArray(ins)) insumos      = ins;
 
-    // Guardar en localStorage como cache fresco (reemplaza cualquier dato viejo)
     lsSetAll();
     setSyncState("ok","Sincronizado ✓");
     renderAll();
   }catch(err){
     console.error("Sync error:", err);
-    // Sin conexión: usar cache local tal cual (puede estar desactualizado)
     setSyncState("err","Sin conexión — datos locales");
-    renderAll(); // igual renderizamos para no dejar pantalla en blanco
+    renderAll();
   }
 }
 
