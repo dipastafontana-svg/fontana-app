@@ -824,51 +824,27 @@ function saveScriptUrl(){
 // ═══════════════════════════════════════════════
 //  DATA
 // ═══════════════════════════════════════════════
-const INIT_PRODUCTS = [
-  // Sorrentinos: se venden por caja (1 caja = 12 unidades), promo 4 cajas $37.000
-  {id:101,name:"Sorrentinos",category:"Pasta",
-   stockUnit:"caja",    // "caja" o "unidad"
-   packQty:12,          // unidades por caja (solo si stockUnit=caja)
-   unitPrice:10000,     // precio de 1 caja
-   promoQty:4,          // cantidad de cajas en promo
-   promoPrice:37000,    // precio total de la promo
-   stock:0,stockMin:4},
-
-  // Pizzas: se venden por unidad, promo 2 pizzas muzarella $17.500
-  {id:110,name:"Pizza muzarella",category:"Pizza",
-   stockUnit:"unidad",packQty:1,unitPrice:9500,promoQty:2,promoPrice:17500,stock:0,stockMin:3},
-  {id:111,name:"Pizza especial",category:"Pizza",
-   stockUnit:"unidad",packQty:1,unitPrice:11500,promoQty:2,promoPrice:21000,stock:0,stockMin:3},
-  {id:112,name:"Pizza espinaca",category:"Pizza",
-   stockUnit:"unidad",packQty:1,unitPrice:11500,promoQty:2,promoPrice:21000,stock:0,stockMin:3},
-  {id:113,name:"Pizza fugazzeta",category:"Pizza",
-   stockUnit:"unidad",packQty:1,unitPrice:11500,promoQty:2,promoPrice:21000,stock:0,stockMin:3},
-  {id:114,name:"Pizza roquefort",category:"Pizza",
-   stockUnit:"unidad",packQty:1,unitPrice:11500,promoQty:2,promoPrice:21000,stock:0,stockMin:3},
-  {id:115,name:"Pizza champiñones",category:"Pizza",
-   stockUnit:"unidad",packQty:1,unitPrice:13500,promoQty:2,promoPrice:24000,stock:0,stockMin:3},
-  {id:116,name:"Pizza 4 quesos",category:"Pizza",
-   stockUnit:"unidad",packQty:1,unitPrice:13500,promoQty:2,promoPrice:24000,stock:0,stockMin:3},
-];
+// DATOS — localStorage es CACHE del Sheet
+// Regla: Sheet manda. Local es respaldo offline.
+// INIT_PRODUCTS solo si no hay NADA en ningún lado.
+// ═══════════════════════════════════════════════
+const INIT_PRODUCTS = []; // vacío — los productos los carga el usuario
 const CATS=["Pasta","Pizza","Empanada","Pre Pizza","Salsa"];
 const CAT_COLORS={"Materia Prima":"#c4622d","Packaging":"#5c7a3a","Gas / Energía":"#2c5f8a","Delivery":"#8a5c2c","Otro":"#888"};
 const STATUS_LABELS={"pendiente":"Pendiente","listo":"Listo","entregado":"Entregado","cancelado":"Cancelado"};
 const STATUS_BADGE={"pendiente":"badge-pend","listo":"badge-listo","entregado":"badge-entregado","cancelado":"badge-cancel"};
 
-// Cargar desde localStorage (siempre como cache)
-let products  = lsGet("fdp_products", null);
-if(!products){ products = JSON.parse(JSON.stringify(INIT_PRODUCTS)); lsSet("fdp_products", products); }
-let sales     = lsGet("fdp_sales"    , []);
-let expenses  = lsGet("fdp_expenses" , []);
-let clients   = lsGet("fdp_clients"  , []);
-let pedidos   = lsGet("fdp_pedidos"  , []);
-let combos    = lsGet("fdp_combos"   , []);
-let costConfig= lsGet("fdp_costcfg"  , {gas:0,pack:0,mano:0,otros:0});
-// productCosts: { [productId]: { ingredients:[{name,qty,unit,unitCost}], notes:""} }
+// Cache local — se sobreescribe con lo del Sheet al conectar
+let products   = lsGet("fdp_products",  []);
+let sales      = lsGet("fdp_sales",     []);
+let expenses   = lsGet("fdp_expenses",  []);
+let clients    = lsGet("fdp_clients",   []);
+let pedidos    = lsGet("fdp_pedidos",   []);
+let combos     = lsGet("fdp_combos",    []);
+let costConfig = lsGet("fdp_costcfg",   {gas:0,pack:0,mano:0,otros:0});
 let productCosts = lsGet("fdp_prodcosts", {});
-// recetas: [{id, nombre, categoria, productoId, rendG, pesoUnitG, rendU, ingredientes:[{name,qty,unit,costo}], notas}]
-let recetas = lsGet("fdp_recetas", []);
-let insumos = lsGet("fdp_insumos", []);
+let recetas    = lsGet("fdp_recetas",   []);
+let insumos    = lsGet("fdp_insumos",   []);
 
 // Temporales (no se guardan)
 let vItems=[], pItems=[], ncItems=[];
@@ -916,43 +892,26 @@ async function loadFromSheets(){
   if(!SCRIPT_URL){ setSyncState("err","Sin URL"); return; }
   setSyncState("sync","Sincronizando...");
   try{
-    const [p,s,e,c,pd,cb,cc,pc,rec,ins]=await Promise.all([
-      sheetGet("fdp_products"),sheetGet("fdp_sales"),sheetGet("fdp_expenses"),
-      sheetGet("fdp_clients"),sheetGet("fdp_pedidos"),sheetGet("fdp_combos"),
-      sheetGet("fdp_costcfg"),sheetGet("fdp_prodcosts"),sheetGet("fdp_recetas"),
+    const [p,s,e,c,pd,cb,cc,pc,rec,ins] = await Promise.all([
+      sheetGet("fdp_products"), sheetGet("fdp_sales"),   sheetGet("fdp_expenses"),
+      sheetGet("fdp_clients"),  sheetGet("fdp_pedidos"), sheetGet("fdp_combos"),
+      sheetGet("fdp_costcfg"),  sheetGet("fdp_prodcosts"),sheetGet("fdp_recetas"),
       sheetGet("fdp_insumos"),
     ]);
-    // Productos: si el Sheet tiene datos los usa; si no, sube los productos locales actuales
-    // NUNCA sobreescribe con INIT_PRODUCTS
-    if(p && Array.isArray(p) && p.length>0){
-      // Merge inteligente: conserva campos locales que el Sheet no tenga
-      products = p;
-    } else {
-      // El Sheet está vacío → subir lo que hay localmente
-      await sheetSet("fdp_products", products);
-    }
-    if(s && Array.isArray(s)) sales=s;
-    if(e && Array.isArray(e)) expenses=e;
-    if(c && Array.isArray(c)) clients=c;
-    if(pd && Array.isArray(pd)) pedidos=pd;
-    if(cb && Array.isArray(cb)) combos=cb;
-    if(cc && typeof cc==="object") costConfig=cc;
-    // Costos y recetas: si el Sheet tiene datos los usa; si no, sube locales
-    if(pc && typeof pc==="object" && Object.keys(pc).length>0){
-      productCosts=pc;
-    } else if(Object.keys(productCosts).length>0){
-      await sheetSet("fdp_prodcosts", productCosts);
-    }
-    if(rec && Array.isArray(rec) && rec.length>0){
-      recetas=rec;
-    } else if(recetas.length>0){
-      await sheetSet("fdp_recetas", recetas);
-    }
-    if(ins && Array.isArray(ins) && ins.length>0){
-      insumos=ins;
-    } else if(typeof insumos!=="undefined" && insumos.length>0){
-      await sheetSet("fdp_insumos", insumos);
-    }
+
+    // El Sheet siempre gana sobre localStorage.
+    // Si el Sheet devuelve null (key nunca guardada), mantenemos lo local sin subir nada.
+    if(Array.isArray(p))  products     = p;
+    if(Array.isArray(s))  sales        = s;
+    if(Array.isArray(e))  expenses     = e;
+    if(Array.isArray(c))  clients      = c;
+    if(Array.isArray(pd)) pedidos      = pd;
+    if(Array.isArray(cb)) combos       = cb;
+    if(cc && typeof cc==="object" && !Array.isArray(cc)) costConfig = cc;
+    if(pc && typeof pc==="object" && !Array.isArray(pc)) productCosts = pc;
+    if(Array.isArray(rec)) recetas     = rec;
+    if(Array.isArray(ins)) insumos     = ins;
+
     lsSetAll();
     setSyncState("ok","Sincronizado ✓");
     renderAll();
@@ -963,16 +922,21 @@ async function loadFromSheets(){
 }
 
 async function saveAll(){
-  lsSetAll();
-  if(!SCRIPT_URL){ setSyncState("err","Sin URL"); return; }
+  lsSetAll(); // siempre guarda local primero
+  if(!SCRIPT_URL){ setSyncState("err","Sin URL — guardado local"); return; }
   setSyncState("sync","Guardando...");
   try{
     await Promise.all([
-      sheetSet("fdp_products",products),sheetSet("fdp_sales",sales),
-      sheetSet("fdp_expenses",expenses),sheetSet("fdp_clients",clients),
-      sheetSet("fdp_pedidos",pedidos),sheetSet("fdp_combos",combos),
-      sheetSet("fdp_costcfg",costConfig),sheetSet("fdp_prodcosts",productCosts),
-      sheetSet("fdp_recetas",recetas),sheetSet("fdp_insumos",insumos||[]),
+      sheetSet("fdp_products",   products),
+      sheetSet("fdp_sales",      sales),
+      sheetSet("fdp_expenses",   expenses),
+      sheetSet("fdp_clients",    clients),
+      sheetSet("fdp_pedidos",    pedidos),
+      sheetSet("fdp_combos",     combos),
+      sheetSet("fdp_costcfg",    costConfig),
+      sheetSet("fdp_prodcosts",  productCosts),
+      sheetSet("fdp_recetas",    recetas),
+      sheetSet("fdp_insumos",    insumos||[]),
     ]);
     setSyncState("ok","Guardado ✓");
   }catch{
