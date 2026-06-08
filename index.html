@@ -244,7 +244,8 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
     <div style="display:flex;align-items:center;gap:6px">
       <span class="dot" id="sync-dot"></span>
       <span id="sync-lbl">Conectando...</span>
-      <button onclick="manualSync()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif">↻</button>
+      <button onclick="manualSync()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Sincronizar (bajar del servidor)">↻</button>
+      <button onclick="forceUploadLocal()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Subir mis datos al servidor">⬆</button>
       <button onclick="openScriptConfig()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Configurar URL">⚙️</button>
     </div>
     <div class="user-badge" id="user-badge" onclick="openUserModal()">
@@ -875,7 +876,7 @@ let expandedProd=null, expandedClient=null, expandedPedido=null;
 
 function lsGet(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
-function lsSetAll(){ lsSet("fdp_products",products); lsSet("fdp_sales",sales); lsSet("fdp_expenses",expenses); lsSet("fdp_clients",clients); lsSet("fdp_pedidos",pedidos); lsSet("fdp_combos",combos); lsSet("fdp_costcfg",costConfig); lsSet("fdp_prodcosts",productCosts); lsSet("fdp_recetas",recetas); }
+function lsSetAll(){ lsSet("fdp_products",products); lsSet("fdp_sales",sales); lsSet("fdp_expenses",expenses); lsSet("fdp_clients",clients); lsSet("fdp_pedidos",pedidos); lsSet("fdp_combos",combos); lsSet("fdp_costcfg",costConfig); lsSet("fdp_prodcosts",productCosts); lsSet("fdp_recetas",recetas); lsSet("fdp_insumos",insumos||[]); }
 
 // ═══════════════════════════════════════════════
 //  HELPERS
@@ -919,21 +920,44 @@ async function loadFromSheets(){
       sheetGet("fdp_products"),sheetGet("fdp_sales"),sheetGet("fdp_expenses"),
       sheetGet("fdp_clients"),sheetGet("fdp_pedidos"),sheetGet("fdp_combos"),
       sheetGet("fdp_costcfg"),sheetGet("fdp_prodcosts"),sheetGet("fdp_recetas"),
+      sheetGet("fdp_insumos"),
     ]);
-    if(p){products=p;}else{await sheetSet("fdp_products",products);}
-    if(s) sales=s;
-    if(e) expenses=e;
-    if(c) clients=c;
-    if(pd) pedidos=pd;
-    if(cb) combos=cb;
-    if(cc) costConfig=cc;
-    if(pc) productCosts=pc;
-    if(rec) recetas=rec;
-    if(ins) insumos=ins;
+    // Productos: si el Sheet tiene datos los usa; si no, sube los productos locales actuales
+    // NUNCA sobreescribe con INIT_PRODUCTS
+    if(p && Array.isArray(p) && p.length>0){
+      // Merge inteligente: conserva campos locales que el Sheet no tenga
+      products = p;
+    } else {
+      // El Sheet está vacío → subir lo que hay localmente
+      await sheetSet("fdp_products", products);
+    }
+    if(s && Array.isArray(s)) sales=s;
+    if(e && Array.isArray(e)) expenses=e;
+    if(c && Array.isArray(c)) clients=c;
+    if(pd && Array.isArray(pd)) pedidos=pd;
+    if(cb && Array.isArray(cb)) combos=cb;
+    if(cc && typeof cc==="object") costConfig=cc;
+    // Costos y recetas: si el Sheet tiene datos los usa; si no, sube locales
+    if(pc && typeof pc==="object" && Object.keys(pc).length>0){
+      productCosts=pc;
+    } else if(Object.keys(productCosts).length>0){
+      await sheetSet("fdp_prodcosts", productCosts);
+    }
+    if(rec && Array.isArray(rec) && rec.length>0){
+      recetas=rec;
+    } else if(recetas.length>0){
+      await sheetSet("fdp_recetas", recetas);
+    }
+    if(ins && Array.isArray(ins) && ins.length>0){
+      insumos=ins;
+    } else if(typeof insumos!=="undefined" && insumos.length>0){
+      await sheetSet("fdp_insumos", insumos);
+    }
     lsSetAll();
     setSyncState("ok","Sincronizado ✓");
     renderAll();
   }catch(err){
+    console.error("Sync error:", err);
     setSyncState("err","Sin conexión — datos locales");
   }
 }
@@ -948,7 +972,7 @@ async function saveAll(){
       sheetSet("fdp_expenses",expenses),sheetSet("fdp_clients",clients),
       sheetSet("fdp_pedidos",pedidos),sheetSet("fdp_combos",combos),
       sheetSet("fdp_costcfg",costConfig),sheetSet("fdp_prodcosts",productCosts),
-      sheetSet("fdp_recetas",recetas),
+      sheetSet("fdp_recetas",recetas),sheetSet("fdp_insumos",insumos||[]),
     ]);
     setSyncState("ok","Guardado ✓");
   }catch{
@@ -957,6 +981,32 @@ async function saveAll(){
 }
 
 function manualSync(){ if(SCRIPT_URL) loadFromSheets(); else toast("⚠️ Configurá primero la URL de Google Sheets"); }
+
+// Fuerza subir todos los datos locales al Sheet (sobreescribe lo remoto)
+async function forceUploadLocal(){
+  if(!SCRIPT_URL){ toast("⚠️ Configurá primero la URL del script"); return; }
+  if(!confirm("¿Subir tus datos locales al servidor? Esto sobreescribirá lo que haya en Google Sheets.")) return;
+  setSyncState("sync","Subiendo datos...");
+  try{
+    await Promise.all([
+      sheetSet("fdp_products",products),
+      sheetSet("fdp_sales",sales),
+      sheetSet("fdp_expenses",expenses),
+      sheetSet("fdp_clients",clients),
+      sheetSet("fdp_pedidos",pedidos),
+      sheetSet("fdp_combos",combos),
+      sheetSet("fdp_costcfg",costConfig),
+      sheetSet("fdp_prodcosts",productCosts),
+      sheetSet("fdp_recetas",recetas),
+      sheetSet("fdp_insumos",insumos||[]),
+    ]);
+    setSyncState("ok","✓ Datos subidos correctamente");
+    toast("✅ Todos los datos locales subidos al servidor");
+  }catch{
+    setSyncState("err","Error al subir");
+    toast("⚠️ Error al subir — revisá la conexión");
+  }
+}
 
 // ═══════════════════════════════════════════════
 //  NAV & TABS
@@ -2378,9 +2428,21 @@ function getWAtext(){
 }
 
 function sendWA(){
-  const phone = document.getElementById("wa-phone").value.replace(/\D/g,"");
+  let phone = document.getElementById("wa-phone").value.replace(/\D/g,"");
   const msg = getWAtext();
-  if(!phone){ toast("⚠️ Ingresá el teléfono del cliente"); return; }
+  if(!msg){ toast("⚠️ No hay mensaje generado"); return; }
+  // Normalizar número argentino:
+  // Sacar 0 inicial, 54 inicial, 549 inicial → quedarse solo con el número local
+  if(phone.startsWith("549")) phone = phone.slice(3);
+  else if(phone.startsWith("54")) phone = phone.slice(2);
+  else if(phone.startsWith("0")) phone = phone.slice(1);
+  if(!phone || phone.length < 8){
+    // Sin teléfono: abre WA sin número (el usuario elige el contacto)
+    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, "_blank");
+    toast("📲 Abriendo WhatsApp — elegí el contacto");
+    return;
+  }
   const url = `https://wa.me/549${phone}?text=${encodeURIComponent(msg)}`;
   window.open(url, "_blank");
 }
