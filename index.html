@@ -871,20 +871,37 @@ function setSyncState(state,msg){
 }
 
 async function sheetGet(key){
-  const r=await fetch(`${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${Date.now()}`, {
-    method: "GET",
-    redirect: "follow",
-  });
-  const txt=await r.text();
-  return txt==="null"?null:JSON.parse(txt);
+  try{
+    const r = await fetch(`${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${Date.now()}`,{
+      method:"GET", redirect:"follow"
+    });
+    const txt = await r.text();
+    if(!txt || txt==="null" || txt==="undefined") return null;
+    // El Apps Script devuelve el valor tal cual fue guardado (ya es JSON)
+    const parsed = JSON.parse(txt);
+    // Si parsed es string, era un double-stringify — parsear de nuevo
+    if(typeof parsed === "string"){
+      try{ return JSON.parse(parsed); }catch{ return null; }
+    }
+    return parsed;
+  }catch(e){
+    console.error("sheetGet error:", key, e);
+    return null;
+  }
 }
-async function sheetSet(key,val){
-  await fetch(SCRIPT_URL, {
-    method: "POST",
-    redirect: "follow",
-    headers: {"Content-Type": "text/plain"},
-    body: JSON.stringify({key, value: JSON.stringify(val)})
-  });
+
+async function sheetSet(key, val){
+  try{
+    await fetch(SCRIPT_URL, {
+      method:"POST",
+      redirect:"follow",
+      headers:{"Content-Type":"text/plain"},
+      // Mandar el valor directamente serializado — el Apps Script lo guarda como string
+      body: JSON.stringify({key, value: JSON.stringify(val)})
+    });
+  }catch(e){
+    console.error("sheetSet error:", key, e);
+  }
 }
 
 async function loadFromSheets(){
@@ -932,7 +949,7 @@ async function loadFromSheets(){
 }
 
 async function saveAll(){
-  lsSetAll(); // siempre guarda local primero
+  lsSetAll();
   if(!SCRIPT_URL){ setSyncState("err","Sin URL — guardado local"); return; }
   setSyncState("sync","Guardando...");
   try{
@@ -949,7 +966,8 @@ async function saveAll(){
       sheetSet("fdp_insumos",    insumos||[]),
     ]);
     setSyncState("ok","Guardado ✓");
-  }catch{
+  }catch(err){
+    console.error("saveAll error:", err);
     setSyncState("err","Sin conexión — guardado local");
   }
 }
