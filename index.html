@@ -870,16 +870,21 @@ function setSyncState(state,msg){
   if(dot){dot.className="dot "+state; lbl.textContent=msg;}
 }
 
+// ═══════════════════════════════════════════════
+//  SYNC — Una sola key "fdp_all" para todos los datos
+//  Evita el problema de race conditions en Google Apps Script
+// ═══════════════════════════════════════════════
+
 async function sheetGet(key){
   try{
-    const r = await fetch(`${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${Date.now()}`,{
-      method:"GET", redirect:"follow"
-    });
+    const r = await fetch(
+      `${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${Date.now()}`,
+      { method:"GET", redirect:"follow" }
+    );
     const txt = await r.text();
-    if(!txt || txt==="null" || txt==="undefined") return null;
-    // El Apps Script devuelve el valor tal cual fue guardado (ya es JSON)
+    if(!txt || txt==="null" || txt==="undefined" || txt==="") return null;
     const parsed = JSON.parse(txt);
-    // Si parsed es string, era un double-stringify — parsear de nuevo
+    // Manejar double-stringify (legacy)
     if(typeof parsed === "string"){
       try{ return JSON.parse(parsed); }catch{ return null; }
     }
@@ -892,15 +897,44 @@ async function sheetGet(key){
 
 async function sheetSet(key, val){
   try{
-    await fetch(SCRIPT_URL, {
+    const r = await fetch(SCRIPT_URL, {
       method:"POST",
       redirect:"follow",
       headers:{"Content-Type":"text/plain"},
-      // Mandar el valor directamente serializado — el Apps Script lo guarda como string
       body: JSON.stringify({key, value: JSON.stringify(val)})
     });
+    const txt = await r.text();
+    return txt;
   }catch(e){
     console.error("sheetSet error:", key, e);
+    throw e;
+  }
+}
+
+// Guarda TODO en una sola key para evitar race conditions
+async function saveAll(){
+  lsSetAll();
+  if(!SCRIPT_URL){ setSyncState("err","Sin URL — guardado local"); return; }
+  setSyncState("sync","Guardando...");
+  try{
+    const bundle = {
+      products,
+      sales,
+      expenses,
+      clients,
+      pedidos,
+      combos,
+      costConfig,
+      productCosts,
+      recetas,
+      insumos: insumos||[],
+      _ts: Date.now() // timestamp para detectar conflictos
+    };
+    await sheetSet("fdp_all", bundle);
+    setSyncState("ok","Guardado ✓");
+  }catch(err){
+    console.error("saveAll error:", err);
+    setSyncState("err","Error al guardar");
   }
 }
 
@@ -908,35 +942,25 @@ async function loadFromSheets(){
   if(!SCRIPT_URL){ setSyncState("err","Sin URL"); return; }
   setSyncState("sync","Sincronizando...");
   try{
-    const [p,s,e,c,pd,cb,cc,pc,rec,ins] = await Promise.all([
-      sheetGet("fdp_products"),  sheetGet("fdp_sales"),     sheetGet("fdp_expenses"),
-      sheetGet("fdp_clients"),   sheetGet("fdp_pedidos"),   sheetGet("fdp_combos"),
-      sheetGet("fdp_costcfg"),   sheetGet("fdp_prodcosts"), sheetGet("fdp_recetas"),
-      sheetGet("fdp_insumos"),
-    ]);
+    const bundle = await sheetGet("fdp_all");
 
-    // Productos: ignorar si el Sheet tiene los productos de ejemplo viejos
-    const NOMBRES_VIEJOS = ["Tallarines","Ñoquis","Ravioles de ricota","Empanadas de carne",
-      "Empanadas de pollo","Empanadas de verdura","Pre pizza muzarella","Pre pizza especial","Salsa bolognesa"];
-    if(Array.isArray(p)){
-      const tieneViejos = p.some(x => NOMBRES_VIEJOS.includes(x.name));
-      if(tieneViejos){
-        // El Sheet tiene basura vieja — ignorar y subir los datos locales limpios
-        await sheetSet("fdp_products", products);
-      } else {
-        products = p;
-      }
+    if(bundle && typeof bundle === "object" && !Array.isArray(bundle)){
+      // Bundle encontrado — aplicar todos los datos
+      if(Array.isArray(bundle.products))    products     = bundle.products;
+      if(Array.isArray(bundle.sales))       sales        = bundle.sales;
+      if(Array.isArray(bundle.expenses))    expenses     = bundle.expenses;
+      if(Array.isArray(bundle.clients))     clients      = bundle.clients;
+      if(Array.isArray(bundle.pedidos))     pedidos      = bundle.pedidos;
+      if(Array.isArray(bundle.combos))      combos       = bundle.combos;
+      if(bundle.costConfig)                 costConfig   = bundle.costConfig;
+      if(bundle.productCosts)               productCosts = bundle.productCosts;
+      if(Array.isArray(bundle.recetas))     recetas      = bundle.recetas;
+      if(Array.isArray(bundle.insumos))     insumos      = bundle.insumos;
+    } else {
+      // No hay bundle — primera vez, subir datos locales
+      await saveAll();
+      return;
     }
-
-    if(Array.isArray(s))   sales        = s;
-    if(Array.isArray(e))   expenses     = e;
-    if(Array.isArray(c))   clients      = c;
-    if(Array.isArray(pd))  pedidos      = pd;
-    if(Array.isArray(cb))  combos       = cb;
-    if(cc && typeof cc==="object" && !Array.isArray(cc)) costConfig   = cc;
-    if(pc && typeof pc==="object" && !Array.isArray(pc)) productCosts = pc;
-    if(Array.isArray(rec)) recetas      = rec;
-    if(Array.isArray(ins)) insumos      = ins;
 
     lsSetAll();
     setSyncState("ok","Sincronizado ✓");
@@ -948,53 +972,16 @@ async function loadFromSheets(){
   }
 }
 
-async function saveAll(){
-  lsSetAll(); // siempre guarda local primero
-  if(!SCRIPT_URL){ setSyncState("err","Sin URL — guardado local"); return; }
-  setSyncState("sync","Guardando...");
-  try{
-    // SECUENCIAL — Google Apps Script no soporta múltiples POST simultáneos
-    // (las requests paralelas se pisan entre sí en PropertiesService)
-    await sheetSet("fdp_products",   products);
-    await sheetSet("fdp_sales",      sales);
-    await sheetSet("fdp_expenses",   expenses);
-    await sheetSet("fdp_clients",    clients);
-    await sheetSet("fdp_pedidos",    pedidos);
-    await sheetSet("fdp_combos",     combos);
-    await sheetSet("fdp_costcfg",    costConfig);
-    await sheetSet("fdp_prodcosts",  productCosts);
-    await sheetSet("fdp_recetas",    recetas);
-    await sheetSet("fdp_insumos",    insumos||[]);
-    setSyncState("ok","Guardado ✓");
-  }catch(err){
-    console.error("saveAll error:", err);
-    setSyncState("err","Sin conexión — guardado local");
-  }
+function manualSync(){
+  if(SCRIPT_URL) loadFromSheets();
+  else toast("⚠️ Configurá primero la URL de Google Sheets");
 }
-
-function manualSync(){ if(SCRIPT_URL) loadFromSheets(); else toast("⚠️ Configurá primero la URL de Google Sheets"); }
 
 async function forceUploadLocal(){
   if(!SCRIPT_URL){ toast("⚠️ Configurá primero la URL del script"); return; }
   if(!confirm("¿Subir todos tus datos al servidor?\nEsto sobreescribirá lo que haya en Google Sheets.")) return;
-  setSyncState("sync","Subiendo...");
-  try{
-    await sheetSet("fdp_products",   products);
-    await sheetSet("fdp_sales",      sales);
-    await sheetSet("fdp_expenses",   expenses);
-    await sheetSet("fdp_clients",    clients);
-    await sheetSet("fdp_pedidos",    pedidos);
-    await sheetSet("fdp_combos",     combos);
-    await sheetSet("fdp_costcfg",    costConfig);
-    await sheetSet("fdp_prodcosts",  productCosts);
-    await sheetSet("fdp_recetas",    recetas);
-    await sheetSet("fdp_insumos",    insumos||[]);
-    setSyncState("ok","✓ Subido correctamente");
-    toast("✅ Datos subidos al servidor");
-  }catch{
-    setSyncState("err","Error al subir");
-    toast("⚠️ Error al subir — revisá la conexión");
-  }
+  await saveAll();
+  toast("✅ Datos subidos al servidor");
 }
 
 // Limpia el cache local y recarga desde el Sheet
@@ -2101,7 +2088,7 @@ function ingRemove(prodId, idx){
   const c = getOrCreateCost(prodId);
   c.ingredients.splice(idx, 1);
   lsSet("fdp_prodcosts", productCosts);
-  if(SCRIPT_URL) sheetSet("fdp_prodcosts", productCosts);
+  saveAll();
   expandedCosto = prodId;
   renderMargenes();
 }
@@ -2112,7 +2099,7 @@ function ingSetField(prodId, idx, field, val){
   const numFields = ["qty","precioPorKg"];
   c.ingredients[idx][field] = numFields.includes(field) ? (Number(val)||"") : val;
   lsSet("fdp_prodcosts", productCosts);
-  if(SCRIPT_URL) sheetSet("fdp_prodcosts", productCosts);
+  saveAll();
   renderMargenes();
 }
 
@@ -2120,7 +2107,7 @@ function ingSetReceta(prodId, field, val){
   const c = getOrCreateCost(prodId);
   c[field] = val || null;
   lsSet("fdp_prodcosts", productCosts);
-  if(SCRIPT_URL) sheetSet("fdp_prodcosts", productCosts);
+  saveAll();
   renderMargenes();
 }
 
@@ -2128,7 +2115,7 @@ function ingNote(prodId, val){
   const c = getOrCreateCost(prodId);
   c.notes = val;
   lsSet("fdp_prodcosts", productCosts);
-  if(SCRIPT_URL) sheetSet("fdp_prodcosts", productCosts);
+  saveAll();
 }
 
 // ─── RESUMEN MENSUAL ─────────────────────────────
@@ -2257,7 +2244,7 @@ function addFijo(){
 function fijoRemove(idx){
   costConfig.items.splice(idx, 1);
   lsSet("fdp_costcfg", costConfig);
-  if(SCRIPT_URL) sheetSet("fdp_costcfg", costConfig);
+  saveAll();
   renderCostConfig();
 }
 
@@ -2265,7 +2252,7 @@ function fijoSetField(idx, field, val){
   if(!costConfig.items[idx]) return;
   costConfig.items[idx][field] = field==="amount" ? (Number(val)||"") : val;
   lsSet("fdp_costcfg", costConfig);
-  if(SCRIPT_URL) sheetSet("fdp_costcfg", costConfig);
+  saveAll();
   updateCfgTotal();
 }
 
@@ -2524,7 +2511,7 @@ function addInsumo(){
 function removeInsumo(id){
   insumos = insumos.filter(i=>i.id!==id);
   lsSet("fdp_insumos", insumos);
-  if(SCRIPT_URL) sheetSet("fdp_insumos", insumos);
+  saveAll();
   renderInsumos();
   renderRecFormIngs();
 }
@@ -2534,7 +2521,7 @@ function insumoSet(id, field, val){
   if(!ins) return;
   ins[field] = field === "precioPorKg" ? (Number(val)||"") : val;
   lsSet("fdp_insumos", insumos);
-  if(SCRIPT_URL) sheetSet("fdp_insumos", insumos);
+  saveAll();
   renderRecFormIngs(); // refrescar costos en el form activo
 }
 
@@ -2679,7 +2666,7 @@ function saveReceta(){
     toast("✅ Receta guardada");
   }
   lsSet("fdp_recetas", recetas);
-  if(SCRIPT_URL) sheetSet("fdp_recetas", recetas);
+  saveAll();
   recFormReset();
   renderRecetas();
   // también actualizar selects del calculador
@@ -2727,7 +2714,7 @@ function deleteReceta(id){
   confirmDelete("¿Eliminar esta receta?", ()=>{
     recetas = recetas.filter(r=>r.id!==id);
     lsSet("fdp_recetas", recetas);
-    if(SCRIPT_URL) sheetSet("fdp_recetas", recetas);
+    saveAll();
     if(expandedReceta===id) expandedReceta=null;
     renderRecetas();
     populateCalcSelects();
