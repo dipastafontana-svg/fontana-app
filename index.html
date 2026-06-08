@@ -949,22 +949,22 @@ async function loadFromSheets(){
 }
 
 async function saveAll(){
-  lsSetAll();
+  lsSetAll(); // siempre guarda local primero
   if(!SCRIPT_URL){ setSyncState("err","Sin URL — guardado local"); return; }
   setSyncState("sync","Guardando...");
   try{
-    await Promise.all([
-      sheetSet("fdp_products",   products),
-      sheetSet("fdp_sales",      sales),
-      sheetSet("fdp_expenses",   expenses),
-      sheetSet("fdp_clients",    clients),
-      sheetSet("fdp_pedidos",    pedidos),
-      sheetSet("fdp_combos",     combos),
-      sheetSet("fdp_costcfg",    costConfig),
-      sheetSet("fdp_prodcosts",  productCosts),
-      sheetSet("fdp_recetas",    recetas),
-      sheetSet("fdp_insumos",    insumos||[]),
-    ]);
+    // SECUENCIAL — Google Apps Script no soporta múltiples POST simultáneos
+    // (las requests paralelas se pisan entre sí en PropertiesService)
+    await sheetSet("fdp_products",   products);
+    await sheetSet("fdp_sales",      sales);
+    await sheetSet("fdp_expenses",   expenses);
+    await sheetSet("fdp_clients",    clients);
+    await sheetSet("fdp_pedidos",    pedidos);
+    await sheetSet("fdp_combos",     combos);
+    await sheetSet("fdp_costcfg",    costConfig);
+    await sheetSet("fdp_prodcosts",  productCosts);
+    await sheetSet("fdp_recetas",    recetas);
+    await sheetSet("fdp_insumos",    insumos||[]);
     setSyncState("ok","Guardado ✓");
   }catch(err){
     console.error("saveAll error:", err);
@@ -974,24 +974,21 @@ async function saveAll(){
 
 function manualSync(){ if(SCRIPT_URL) loadFromSheets(); else toast("⚠️ Configurá primero la URL de Google Sheets"); }
 
-// Sube todos los datos actuales en memoria al Sheet
 async function forceUploadLocal(){
   if(!SCRIPT_URL){ toast("⚠️ Configurá primero la URL del script"); return; }
   if(!confirm("¿Subir todos tus datos al servidor?\nEsto sobreescribirá lo que haya en Google Sheets.")) return;
   setSyncState("sync","Subiendo...");
   try{
-    await Promise.all([
-      sheetSet("fdp_products",   products),
-      sheetSet("fdp_sales",      sales),
-      sheetSet("fdp_expenses",   expenses),
-      sheetSet("fdp_clients",    clients),
-      sheetSet("fdp_pedidos",    pedidos),
-      sheetSet("fdp_combos",     combos),
-      sheetSet("fdp_costcfg",    costConfig),
-      sheetSet("fdp_prodcosts",  productCosts),
-      sheetSet("fdp_recetas",    recetas),
-      sheetSet("fdp_insumos",    insumos||[]),
-    ]);
+    await sheetSet("fdp_products",   products);
+    await sheetSet("fdp_sales",      sales);
+    await sheetSet("fdp_expenses",   expenses);
+    await sheetSet("fdp_clients",    clients);
+    await sheetSet("fdp_pedidos",    pedidos);
+    await sheetSet("fdp_combos",     combos);
+    await sheetSet("fdp_costcfg",    costConfig);
+    await sheetSet("fdp_prodcosts",  productCosts);
+    await sheetSet("fdp_recetas",    recetas);
+    await sheetSet("fdp_insumos",    insumos||[]);
     setSyncState("ok","✓ Subido correctamente");
     toast("✅ Datos subidos al servidor");
   }catch{
