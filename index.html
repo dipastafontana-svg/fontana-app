@@ -246,6 +246,7 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
       <span id="sync-lbl">Conectando...</span>
       <button onclick="manualSync()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Sincronizar (bajar del servidor)">↻</button>
       <button onclick="forceUploadLocal()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Subir mis datos al servidor">⬆</button>
+      <button onclick="clearLocalAndReload()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Limpiar cache y recargar del servidor">🗑</button>
       <button onclick="openScriptConfig()" style="background:none;border:none;color:#f5cba7;cursor:pointer;font-size:11px;font-family:sans-serif" title="Configurar URL">⚙️</button>
     </div>
     <div class="user-badge" id="user-badge" onclick="openUserModal()">
@@ -893,31 +894,34 @@ async function loadFromSheets(){
   setSyncState("sync","Sincronizando...");
   try{
     const [p,s,e,c,pd,cb,cc,pc,rec,ins] = await Promise.all([
-      sheetGet("fdp_products"), sheetGet("fdp_sales"),   sheetGet("fdp_expenses"),
-      sheetGet("fdp_clients"),  sheetGet("fdp_pedidos"), sheetGet("fdp_combos"),
-      sheetGet("fdp_costcfg"),  sheetGet("fdp_prodcosts"),sheetGet("fdp_recetas"),
+      sheetGet("fdp_products"),  sheetGet("fdp_sales"),     sheetGet("fdp_expenses"),
+      sheetGet("fdp_clients"),   sheetGet("fdp_pedidos"),   sheetGet("fdp_combos"),
+      sheetGet("fdp_costcfg"),   sheetGet("fdp_prodcosts"), sheetGet("fdp_recetas"),
       sheetGet("fdp_insumos"),
     ]);
 
-    // El Sheet siempre gana sobre localStorage.
-    // Si el Sheet devuelve null (key nunca guardada), mantenemos lo local sin subir nada.
-    if(Array.isArray(p))  products     = p;
-    if(Array.isArray(s))  sales        = s;
-    if(Array.isArray(e))  expenses     = e;
-    if(Array.isArray(c))  clients      = c;
-    if(Array.isArray(pd)) pedidos      = pd;
-    if(Array.isArray(cb)) combos       = cb;
-    if(cc && typeof cc==="object" && !Array.isArray(cc)) costConfig = cc;
+    // Aplicar datos del Sheet — siempre ganan sobre el cache local
+    // Si el Sheet devuelve null para una clave, la dejamos como está (primera vez)
+    if(Array.isArray(p))   products     = p;
+    if(Array.isArray(s))   sales        = s;
+    if(Array.isArray(e))   expenses     = e;
+    if(Array.isArray(c))   clients      = c;
+    if(Array.isArray(pd))  pedidos      = pd;
+    if(Array.isArray(cb))  combos       = cb;
+    if(cc && typeof cc==="object" && !Array.isArray(cc)) costConfig   = cc;
     if(pc && typeof pc==="object" && !Array.isArray(pc)) productCosts = pc;
-    if(Array.isArray(rec)) recetas     = rec;
-    if(Array.isArray(ins)) insumos     = ins;
+    if(Array.isArray(rec)) recetas      = rec;
+    if(Array.isArray(ins)) insumos      = ins;
 
+    // Guardar en localStorage como cache fresco (reemplaza cualquier dato viejo)
     lsSetAll();
     setSyncState("ok","Sincronizado ✓");
     renderAll();
   }catch(err){
     console.error("Sync error:", err);
+    // Sin conexión: usar cache local tal cual (puede estar desactualizado)
     setSyncState("err","Sin conexión — datos locales");
+    renderAll(); // igual renderizamos para no dejar pantalla en blanco
   }
 }
 
@@ -946,30 +950,41 @@ async function saveAll(){
 
 function manualSync(){ if(SCRIPT_URL) loadFromSheets(); else toast("⚠️ Configurá primero la URL de Google Sheets"); }
 
-// Fuerza subir todos los datos locales al Sheet (sobreescribe lo remoto)
+// Sube todos los datos actuales en memoria al Sheet
 async function forceUploadLocal(){
   if(!SCRIPT_URL){ toast("⚠️ Configurá primero la URL del script"); return; }
-  if(!confirm("¿Subir tus datos locales al servidor? Esto sobreescribirá lo que haya en Google Sheets.")) return;
-  setSyncState("sync","Subiendo datos...");
+  if(!confirm("¿Subir todos tus datos al servidor?\nEsto sobreescribirá lo que haya en Google Sheets.")) return;
+  setSyncState("sync","Subiendo...");
   try{
     await Promise.all([
-      sheetSet("fdp_products",products),
-      sheetSet("fdp_sales",sales),
-      sheetSet("fdp_expenses",expenses),
-      sheetSet("fdp_clients",clients),
-      sheetSet("fdp_pedidos",pedidos),
-      sheetSet("fdp_combos",combos),
-      sheetSet("fdp_costcfg",costConfig),
-      sheetSet("fdp_prodcosts",productCosts),
-      sheetSet("fdp_recetas",recetas),
-      sheetSet("fdp_insumos",insumos||[]),
+      sheetSet("fdp_products",   products),
+      sheetSet("fdp_sales",      sales),
+      sheetSet("fdp_expenses",   expenses),
+      sheetSet("fdp_clients",    clients),
+      sheetSet("fdp_pedidos",    pedidos),
+      sheetSet("fdp_combos",     combos),
+      sheetSet("fdp_costcfg",    costConfig),
+      sheetSet("fdp_prodcosts",  productCosts),
+      sheetSet("fdp_recetas",    recetas),
+      sheetSet("fdp_insumos",    insumos||[]),
     ]);
-    setSyncState("ok","✓ Datos subidos correctamente");
-    toast("✅ Todos los datos locales subidos al servidor");
+    setSyncState("ok","✓ Subido correctamente");
+    toast("✅ Datos subidos al servidor");
   }catch{
     setSyncState("err","Error al subir");
     toast("⚠️ Error al subir — revisá la conexión");
   }
+}
+
+// Limpia el cache local y recarga desde el Sheet
+// Usar cuando los datos locales están corruptos o desactualizados
+function clearLocalAndReload(){
+  if(!confirm("¿Limpiar cache local y recargar desde el servidor?\nNo perderás datos si el Sheet está sincronizado.")) return;
+  const keysToDelete = ["fdp_products","fdp_sales","fdp_expenses","fdp_clients",
+    "fdp_pedidos","fdp_combos","fdp_costcfg","fdp_prodcosts","fdp_recetas","fdp_insumos"];
+  keysToDelete.forEach(k => localStorage.removeItem(k));
+  toast("🔄 Cache limpiado — recargando...");
+  setTimeout(()=> window.location.reload(), 800);
 }
 
 // ═══════════════════════════════════════════════
@@ -2441,10 +2456,18 @@ window.addEventListener("load",()=>{
   document.getElementById("loading").style.display="none";
   document.getElementById("app").style.display="block";
   document.getElementById("nav").style.display="flex";
-  if(!SCRIPT_URL) document.getElementById("setup-panel").style.display="block";
-  renderAll();
-  if(SCRIPT_URL) loadFromSheets();
-  else setSyncState("err","Sin URL — datos locales");
+
+  if(!SCRIPT_URL){
+    // Sin URL: mostrar panel de setup y datos locales
+    document.getElementById("setup-panel").style.display="block";
+    setSyncState("err","Sin URL — datos locales");
+    renderAll();
+  } else {
+    // Con URL: mostrar spinner y esperar al Sheet ANTES de renderizar
+    // Esto evita que datos viejos del localStorage se muestren brevemente
+    setSyncState("sync","Cargando datos...");
+    loadFromSheets(); // renderAll() se llama dentro cuando termina
+  }
 });
 
 // ═══════════════════════════════════════════════
