@@ -906,26 +906,30 @@ function sheetGet(key){
 }
 
 // ── ESCRIBIR ───────────────────────────────────
-// Content-Type: text/plain evita el preflight OPTIONS.
-// Apps Script recibe e.postData.contents con el JSON.
-// La respuesta es texto plano "ok" o "error:...".
+// Google Apps Script redirige el POST a una URL echo intermedia.
+// Solución: primero un GET para obtener la URL final, luego POST directo ahí.
 function sheetSet(key, val){
-  return fetch(SCRIPT_URL, {
-    method:  "POST",
-    // SIN mode:"no-cors" → obtenemos respuesta real
-    // Content-Type text/plain → no dispara preflight CORS
-    headers: { "Content-Type": "text/plain" },
-    body:    JSON.stringify({ key, value: JSON.stringify(val) })
-  })
-  .then(r => r.text())
-  .then(t => {
-    console.log("[Fontana] sheetSet response:", t);
-    return t.trim() === "ok" ? "ok" : "error";
-  })
-  .catch(err => {
-    console.error("[Fontana] sheetSet fetch error:", err);
-    return "error";
-  });
+  const body = JSON.stringify({ key, value: JSON.stringify(val) });
+  return fetch(SCRIPT_URL, { method: "GET", redirect: "follow" })
+    .then(r => {
+      // r.url es la URL final tras los redirects (el echo endpoint)
+      const finalUrl = r.url.split("?")[0]; // sacar query params del GET
+      console.log("[Fontana] sheetSet → POST a:", finalUrl);
+      return fetch(finalUrl, {
+        method:  "POST",
+        headers: { "Content-Type": "text/plain" },
+        body:    body
+      });
+    })
+    .then(r => r.text())
+    .then(t => {
+      console.log("[Fontana] sheetSet response:", t);
+      return t.trim() === "ok" ? "ok" : "error";
+    })
+    .catch(err => {
+      console.error("[Fontana] sheetSet error:", err);
+      return "error";
+    });
 }
 
 // ── GUARDAR TODO ───────────────────────────────
