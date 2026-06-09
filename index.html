@@ -995,6 +995,8 @@ async function sheetGetSmart(key){
 
 async function saveAll(){
   lsSetAll();
+  // Marcar como "pendiente de sync" hasta confirmar que llegó al Sheet
+  localStorage.setItem("fdp_dirty", "1");
   if(!SCRIPT_URL || !navigator.onLine){
     if(!navigator.onLine){ _pendingSync=true; setSyncState("err","Sin conexión — datos locales"); }
     return;
@@ -1006,20 +1008,22 @@ async function saveAll(){
     pedidos, combos, costConfig, productCosts,
     recetas, insumos: insumos||[], _ts: ts
   };
-  // Diagnóstico de tamaño (PropertiesService tiene límite de ~9KB por key)
   const bundleSize = JSON.stringify(bundle).length;
   console.log(`[Fontana] Bundle size: ${bundleSize} chars (~${(bundleSize/1024).toFixed(1)}KB)`);
   if(bundleSize > 50000){
     setSyncState("err","Bundle muy grande — usando chunks");
-    console.warn("[Fontana] Bundle > 50KB, esto puede ser lento");
+    console.warn("[Fontana] Bundle > 50KB, puede ser lento");
   }
   const result = await sheetSet("fdp_all", bundle);
-  if(result === "timeout"){
-    setSyncState("err","Timeout al guardar");
-    console.error("[Fontana] sheetSet timeout — datos solo en local");
+  if(result === "timeout" || result === "error"){
+    setSyncState("err","⚠ No se pudo guardar en la nube");
+    console.error("[Fontana] sheetSet falló:", result, "— datos solo en local");
     return;
   }
+  // Solo si el write fue confirmado por el Script, actualizamos el timestamp
+  // y limpiamos el flag dirty
   localStorage.setItem("fdp_last_ts", ts);
+  localStorage.removeItem("fdp_dirty");
   setSyncState("ok","Guardado ✓");
 }
 
@@ -1029,10 +1033,28 @@ async function loadFromSheets(){
   const bundle = await sheetGetSmart("fdp_all");
 
   if(bundle && typeof bundle==="object" && !Array.isArray(bundle) && bundle._ts){
-    // El Sheet tiene datos — comparar timestamps
-    const localTs = parseInt(localStorage.getItem("fdp_last_ts")||"0");
-    if(bundle._ts >= localTs){
-      // Sheet es más nuevo (o igual) → aplicar
+    const localTs   = parseInt(localStorage.getItem("fdp_last_ts")||"0");
+    const sheetNewer = bundle._ts >= localTs;
+
+    const localDirty  = localStorage.getItem("fdp_dirty") === "1";
+
+    // Conteo de registros: si el Sheet tiene menos datos que el local,
+    // el local manda aunque el timestamp del Sheet sea más reciente.
+    // Esto protege contra el caso donde el POST nunca llegó y el Sheet
+    // tiene un bundle viejo/vacío con timestamp alto.
+    const sheetTotal  = (bundle.products||[]).length + (bundle.sales||[]).length +
+                        (bundle.expenses||[]).length + (bundle.clients||[]).length +
+                        (bundle.pedidos||[]).length;
+    const localTotal  = products.length + sales.length + expenses.length +
+                        clients.length + pedidos.length;
+
+    // El Sheet solo gana si es más nuevo Y tiene al menos tantos registros como el local
+    // Y no hay cambios locales pendientes de confirmar (fdp_dirty)
+    const sheetWins = sheetNewer && (sheetTotal >= localTotal || localTotal === 0) && !localDirty;
+
+    console.log(`[Fontana] Sheet ts=${bundle._ts} local ts=${localTs} dirty=${localDirty} | sheet records=${sheetTotal} local records=${localTotal} | sheetWins=${sheetWins}`);
+
+    if(sheetWins){
       if(Array.isArray(bundle.products))                              products     = bundle.products;
       if(Array.isArray(bundle.sales))                                 sales        = bundle.sales;
       if(Array.isArray(bundle.expenses))                              expenses     = bundle.expenses;
@@ -1045,14 +1067,15 @@ async function loadFromSheets(){
       if(Array.isArray(bundle.insumos))                               insumos      = bundle.insumos;
       lsSetAll();
       localStorage.setItem("fdp_last_ts", bundle._ts);
+      localStorage.removeItem("fdp_dirty");
       setSyncState("ok","Sincronizado ✓");
     } else {
-      // Local es más nuevo → subir al Sheet
-      setSyncState("sync","Subiendo cambios...");
+      // Local tiene más datos o es más nuevo → subir al Sheet
+      setSyncState("sync","Subiendo cambios locales...");
       await saveAll();
     }
   } else {
-    // Sheet vacío → subir datos locales
+    // Sheet vacío o null → subir datos locales
     setSyncState("sync","Primera sync...");
     await saveAll();
   }
