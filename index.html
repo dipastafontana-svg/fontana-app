@@ -921,40 +921,53 @@ function sheetSet(key, val){
 }
 
 async function saveAll(){
-  lsSetAll(); // siempre guardar local primero
+  lsSetAll();
   if(!SCRIPT_URL || !navigator.onLine){
     if(!navigator.onLine){ _pendingSync=true; setSyncState("err","Sin conexión — datos locales"); }
     return;
   }
   setSyncState("sync","Guardando...");
+  const ts = Date.now();
   const bundle = {
     products, sales, expenses, clients,
     pedidos, combos, costConfig, productCosts,
-    recetas, insumos: insumos||[], _ts: Date.now()
+    recetas, insumos: insumos||[], _ts: ts
   };
   await sheetSet("fdp_all", bundle);
+  localStorage.setItem("fdp_last_ts", ts);
   setSyncState("ok","Guardado ✓");
 }
 
 async function loadFromSheets(){
-  if(!SCRIPT_URL){ setSyncState("err","Sin URL"); renderAll(); return; }
+  if(!SCRIPT_URL){ setSyncState("err","Sin URL"); return; }
   setSyncState("sync","Sincronizando...");
   const bundle = await sheetGet("fdp_all");
+
   if(bundle && typeof bundle==="object" && !Array.isArray(bundle) && bundle._ts){
-    if(Array.isArray(bundle.products))                              products     = bundle.products;
-    if(Array.isArray(bundle.sales))                                 sales        = bundle.sales;
-    if(Array.isArray(bundle.expenses))                              expenses     = bundle.expenses;
-    if(Array.isArray(bundle.clients))                               clients      = bundle.clients;
-    if(Array.isArray(bundle.pedidos))                               pedidos      = bundle.pedidos;
-    if(Array.isArray(bundle.combos))                                combos       = bundle.combos;
-    if(bundle.costConfig  && typeof bundle.costConfig==="object")   costConfig   = bundle.costConfig;
-    if(bundle.productCosts&& typeof bundle.productCosts==="object") productCosts = bundle.productCosts;
-    if(Array.isArray(bundle.recetas))                               recetas      = bundle.recetas;
-    if(Array.isArray(bundle.insumos))                               insumos      = bundle.insumos;
-    lsSetAll();
-    setSyncState("ok","Sincronizado ✓");
+    // El Sheet tiene datos — comparar timestamps
+    const localTs = parseInt(localStorage.getItem("fdp_last_ts")||"0");
+    if(bundle._ts >= localTs){
+      // Sheet es más nuevo (o igual) → aplicar
+      if(Array.isArray(bundle.products))                              products     = bundle.products;
+      if(Array.isArray(bundle.sales))                                 sales        = bundle.sales;
+      if(Array.isArray(bundle.expenses))                              expenses     = bundle.expenses;
+      if(Array.isArray(bundle.clients))                               clients      = bundle.clients;
+      if(Array.isArray(bundle.pedidos))                               pedidos      = bundle.pedidos;
+      if(Array.isArray(bundle.combos))                                combos       = bundle.combos;
+      if(bundle.costConfig  && typeof bundle.costConfig==="object")   costConfig   = bundle.costConfig;
+      if(bundle.productCosts&& typeof bundle.productCosts==="object") productCosts = bundle.productCosts;
+      if(Array.isArray(bundle.recetas))                               recetas      = bundle.recetas;
+      if(Array.isArray(bundle.insumos))                               insumos      = bundle.insumos;
+      lsSetAll();
+      localStorage.setItem("fdp_last_ts", bundle._ts);
+      setSyncState("ok","Sincronizado ✓");
+    } else {
+      // Local es más nuevo → subir al Sheet
+      setSyncState("sync","Subiendo cambios...");
+      await saveAll();
+    }
   } else {
-    // Nada en el Sheet todavía → subir datos locales por primera vez
+    // Sheet vacío → subir datos locales
     setSyncState("sync","Primera sync...");
     await saveAll();
   }
@@ -2455,16 +2468,13 @@ window.addEventListener("load",()=>{
   document.getElementById("nav").style.display="flex";
 
   if(!SCRIPT_URL){
-    // Sin URL: mostrar panel de setup y datos locales
     document.getElementById("setup-panel").style.display="block";
     setSyncState("err","Sin URL — datos locales");
-    renderAll();
   } else {
-    // Con URL: mostrar spinner y esperar al Sheet ANTES de renderizar
-    // Esto evita que datos viejos del localStorage se muestren brevemente
-    setSyncState("sync","Cargando datos...");
-    loadFromSheets(); // renderAll() se llama dentro cuando termina
+    setSyncState("ok","Listo — tocá ↻ para sincronizar");
   }
+  // Siempre arrancar con datos locales — el usuario sincroniza cuando quiere
+  renderAll();
 });
 
 // ═══════════════════════════════════════════════
