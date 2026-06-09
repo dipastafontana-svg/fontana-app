@@ -884,11 +884,15 @@ function setSyncState(state,msg){
 
 // GET via <script> tag injection — bypasea CORS completamente
 // ═══════════════════════════════════════════════
-//  SYNC — Google Apps Script via JSONP + no-cors
-//  sheetGet  → <script> tag (bypasea CORS en GET)
-//  sheetSet  → fetch no-cors sin headers (bypasea CORS en POST)
-//  saveAll   → guarda todo en una sola key fdp_all
-//  loadFromSheets → baja fdp_all y aplica
+//  SYNC — Google Apps Script via JSONP (GET puro, sin fetch POST)
+//  sheetGet      → <script> tag JSONP (bypasea CORS en GET)
+//  sheetSet      → <script> tag JSONP con action=set (bypasea CORS en write)
+//  sheetGetSmart → sheetGet + soporte de chunks automático
+//  saveAll       → guarda todo en "fdp_all" (con chunking si >7KB)
+//  loadFromSheets→ baja fdp_all y aplica con comparación de timestamps
+//
+//  !! REQUIERE Apps Script actualizado con action=set en doGet !!
+//  Ver Apps Script en el README / contexto del proyecto.
 // ═══════════════════════════════════════════════
 
 function sheetGet(key){
@@ -908,16 +912,85 @@ function sheetGet(key){
 }
 
 function sheetSet(key, val){
+  // ── JSONP write: evita el problema de fetch no-cors opaque response ──
+  // El Apps Script debe tener action=set en doGet (ver comentario en saveAll)
   return new Promise((resolve)=>{
-    // no-cors sin headers custom — funciona con Google Apps Script
-    fetch(SCRIPT_URL, {
-      method: "POST",
-      mode:   "no-cors",
-      body:   JSON.stringify({ key, value: JSON.stringify(val) })
-    })
-    .then(()=> resolve("ok"))
-    .catch(()=> resolve("error")); // nunca rechazar — guardado local ya fue hecho
+    const cbName = "_gasset_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    const script  = document.createElement("script");
+    const timer   = setTimeout(()=>{
+      delete window[cbName]; script.remove();
+      resolve("timeout");
+    }, 12000);
+
+    window[cbName] = (resp)=>{
+      clearTimeout(timer); delete window[cbName]; script.remove();
+      resolve(resp && resp.ok ? "ok" : "error");
+    };
+    script.onerror = ()=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve("error"); };
+
+    const valueStr = JSON.stringify(val);
+    // Dividir en chunks si supera 7KB (límite seguro de PropertiesService es ~9KB)
+    const CHUNK = 7000;
+    if(valueStr.length > CHUNK){
+      // Guardar en chunks: fdp_all_0, fdp_all_1, ...
+      const chunks = [];
+      for(let i=0;i<valueStr.length;i+=CHUNK) chunks.push(valueStr.slice(i,i+CHUNK));
+      // Guardar metadata primero, luego chunks secuencialmente
+      _sheetSetChunked(key, chunks, 0, cbName, timer, script, resolve);
+      return;
+    }
+
+    script.src = `${SCRIPT_URL}?action=set&key=${encodeURIComponent(key)}&value=${encodeURIComponent(valueStr)}&cb=${cbName}&t=${Date.now()}`;
+    document.head.appendChild(script);
   });
+}
+
+// Escribe chunks secuencialmente y guarda un índice en key+"_meta"
+async function _sheetSetChunked(key, chunks, idx, cbName, timer, script, resolve){
+  // Si ya terminamos los chunks, guardamos la metadata
+  if(idx >= chunks.length){
+    const metaName = "_gasmeta_" + Date.now();
+    const ms = document.createElement("script");
+    const mt = setTimeout(()=>{ delete window[metaName]; ms.remove(); resolve("ok"); }, 8000);
+    window[metaName] = ()=>{ clearTimeout(mt); delete window[metaName]; ms.remove();
+      clearTimeout(timer); delete window[cbName]; script.remove(); resolve("ok"); };
+    ms.onerror = ()=>{ clearTimeout(mt); delete window[metaName]; ms.remove(); resolve("ok"); };
+    ms.src = `${SCRIPT_URL}?action=set&key=${encodeURIComponent(key+"_meta")}&value=${encodeURIComponent(JSON.stringify({chunks:chunks.length}))}&cb=${metaName}&t=${Date.now()}`;
+    document.head.appendChild(ms);
+    return;
+  }
+  const chunkKey  = `${key}_${idx}`;
+  const chunkCb   = "_gasc_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+  const chunkScript = document.createElement("script");
+  const chunkTimer  = setTimeout(()=>{
+    delete window[chunkCb]; chunkScript.remove();
+    _sheetSetChunked(key, chunks, idx+1, cbName, timer, script, resolve);
+  }, 10000);
+  window[chunkCb] = ()=>{
+    clearTimeout(chunkTimer); delete window[chunkCb]; chunkScript.remove();
+    _sheetSetChunked(key, chunks, idx+1, cbName, timer, script, resolve);
+  };
+  chunkScript.onerror = ()=>{ clearTimeout(chunkTimer); delete window[chunkCb]; chunkScript.remove();
+    _sheetSetChunked(key, chunks, idx+1, cbName, timer, script, resolve); };
+  chunkScript.src = `${SCRIPT_URL}?action=set&key=${encodeURIComponent(chunkKey)}&value=${encodeURIComponent(chunks[idx])}&cb=${chunkCb}&t=${Date.now()}`;
+  document.head.appendChild(chunkScript);
+}
+
+// sheetGet ya soporta chunks transparentemente
+const _origSheetGet = sheetGet;
+async function sheetGetSmart(key){
+  // Chequear si hay metadata de chunks
+  const meta = await _origSheetGet(key+"_meta");
+  if(meta && meta.chunks && meta.chunks > 1){
+    let full = "";
+    for(let i=0;i<meta.chunks;i++){
+      const part = await _origSheetGet(`${key}_${i}`);
+      if(part === null) return null; // chunk faltante → fallo total
+      full += part;
+    }
+    try{ return JSON.parse(full); }catch{ return null; }
+  }
+  return _origSheetGet(key);
 }
 
 async function saveAll(){
@@ -933,7 +1006,19 @@ async function saveAll(){
     pedidos, combos, costConfig, productCosts,
     recetas, insumos: insumos||[], _ts: ts
   };
-  await sheetSet("fdp_all", bundle);
+  // Diagnóstico de tamaño (PropertiesService tiene límite de ~9KB por key)
+  const bundleSize = JSON.stringify(bundle).length;
+  console.log(`[Fontana] Bundle size: ${bundleSize} chars (~${(bundleSize/1024).toFixed(1)}KB)`);
+  if(bundleSize > 50000){
+    setSyncState("err","Bundle muy grande — usando chunks");
+    console.warn("[Fontana] Bundle > 50KB, esto puede ser lento");
+  }
+  const result = await sheetSet("fdp_all", bundle);
+  if(result === "timeout"){
+    setSyncState("err","Timeout al guardar");
+    console.error("[Fontana] sheetSet timeout — datos solo en local");
+    return;
+  }
   localStorage.setItem("fdp_last_ts", ts);
   setSyncState("ok","Guardado ✓");
 }
@@ -941,7 +1026,7 @@ async function saveAll(){
 async function loadFromSheets(){
   if(!SCRIPT_URL){ setSyncState("err","Sin URL"); return; }
   setSyncState("sync","Sincronizando...");
-  const bundle = await sheetGet("fdp_all");
+  const bundle = await sheetGetSmart("fdp_all");
 
   if(bundle && typeof bundle==="object" && !Array.isArray(bundle) && bundle._ts){
     // El Sheet tiene datos — comparar timestamps
