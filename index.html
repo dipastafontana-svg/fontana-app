@@ -3426,43 +3426,312 @@ renderGastos = function(){
 // ─── Helpers comunes ───
 function getMesLabel(m){ return new Date(m+"-01").toLocaleDateString("es-AR",{month:"long",year:"numeric"}); }
 
-// ─── EXCEL: Ventas ───
+// ─── Helper: generar y descargar XLSX con SheetJS ───────────────────
+function xlsxDownload(sheetsData, filename){
+  // sheetsData = [{name, rows: [[...], ...], colWidths: [...]}]
+  // Cargamos SheetJS dinámicamente si no está disponible
+  function doExport(XLSX){
+    const wb = XLSX.utils.book_new();
+    sheetsData.forEach(({name, rows, colWidths})=>{
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      // Anchos de columna
+      if(colWidths) ws["!cols"] = colWidths.map(w=>({wch:w}));
+      XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
+    });
+    XLSX.writeFile(wb, filename);
+  }
+  if(window.XLSX){
+    doExport(window.XLSX);
+  } else {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = ()=> doExport(window.XLSX);
+    s.onerror = ()=>{ toast("⚠️ Error cargando librería Excel"); };
+    document.head.appendChild(s);
+  }
+}
+
+// ─── EXCEL: Ventas ───────────────────────────────
 function exportVentasExcel(){
   const m = document.getElementById("v-filter").value || month();
   const filtered = sales.filter(s=>s.date.startsWith(m));
   if(!filtered.length){ toast("Sin ventas en este período"); return; }
-
-  // Armar CSV (compatible con Excel)
-  const rows = [["Fecha","Cliente","Productos","Forma de pago","Nota","Total"]];
-  filtered.forEach(s=>{
-    const prods = s.items.map(i=>`${i.name} x${i.qty}`).join(" | ");
-    rows.push([fd(s.date), s.client||"General", prods, s.payMethod||"", s.note||"", s.total]);
-  });
+  const mesLabel = getMesLabel(m);
   const total = filtered.reduce((a,s)=>a+s.total,0);
-  rows.push(["","","","","TOTAL", total]);
 
-  const csv = rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-  const bom = "\uFEFF"; // BOM para que Excel abra bien con tildes
-  downloadFile(bom+csv, `ventas_${m}.csv`, "text/csv;charset=utf-8;");
-  toast("📊 Exportando Excel...");
+  // Hoja 1: detalle de ventas
+  const rows = [
+    [`VENTAS — ${mesLabel.toUpperCase()}`],
+    [`Generado el ${new Date().toLocaleDateString("es-AR")}`],
+    [],
+    ["#","Fecha","Cliente","Forma de pago","Nota","Productos","Cant. ítems","Total $"]
+  ];
+  filtered.forEach((s,i)=>{
+    const prods = s.items.map(it=>`${it.name} ×${it.qty}`).join(" | ");
+    rows.push([
+      i+1,
+      fd(s.date),
+      s.client||"Cliente general",
+      s.payMethod||"",
+      s.note||"",
+      prods,
+      s.items.reduce((a,it)=>a+it.qty,0),
+      s.total
+    ]);
+  });
+  rows.push([]);
+  rows.push(["","","","","","","TOTAL",total]);
+
+  // Hoja 2: detalle por producto
+  const byProd = {};
+  filtered.forEach(s=> s.items.forEach(it=>{
+    const k = it.name;
+    if(!byProd[k]) byProd[k]={name:k, qty:0, total:0};
+    byProd[k].qty   += it.qty;
+    byProd[k].total += it.subtotal;
+  }));
+  const rows2 = [
+    [`VENTAS POR PRODUCTO — ${mesLabel.toUpperCase()}`],[],
+    ["Producto","Unidades vendidas","Total recaudado $","% del total"]
+  ];
+  Object.values(byProd).sort((a,b)=>b.total-a.total).forEach(p=>{
+    rows2.push([p.name, p.qty, p.total, total>0?+(p.total/total*100).toFixed(1)+"%":"0%"]);
+  });
+  rows2.push([]);
+  rows2.push(["TOTAL","",total,"100%"]);
+
+  xlsxDownload([
+    {name:"Ventas", rows, colWidths:[4,12,20,16,20,40,12,14]},
+    {name:"Por producto", rows:rows2, colWidths:[30,18,20,12]}
+  ], `ventas_${m}.xlsx`);
+  toast("📊 Generando Excel...");
 }
 
-// ─── EXCEL: Pedidos ───
+// ─── EXCEL: Pedidos ──────────────────────────────
 function exportPedidosExcel(){
   const m = document.getElementById("p-filter-month").value || month();
   const filtered = pedidos.filter(p=>p.deliveryDate.startsWith(m)||p.createdDate.startsWith(m));
   if(!filtered.length){ toast("Sin pedidos en este período"); return; }
-  const rows=[["Cliente","Tel","Entrega","Estado","Productos","Total","Pagado","Pendiente"]];
-  filtered.forEach(p=>{
-    const prods=p.items.map(i=>`${i.name} x${i.qty}`).join(" | ");
-    rows.push([p.client,p.phone||"",fd(p.deliveryDate),STATUS_LABELS[p.status]||p.status,prods,p.totalAmount,p.amountPaid||0,(p.totalAmount-(p.amountPaid||0))]);
+  const mesLabel = getMesLabel(m);
+
+  const rows = [
+    [`PEDIDOS — ${mesLabel.toUpperCase()}`],
+    [`Generado el ${new Date().toLocaleDateString("es-AR")}`],
+    [],
+    ["#","Cliente","Teléfono","Fecha entrega","Estado","Productos","Total $","Pagado $","Pendiente $","Nota"]
+  ];
+  filtered.forEach((p,i)=>{
+    const prods = p.items.map(it=>`${it.name} ×${it.qty}`).join(" | ");
+    const pend  = p.totalAmount-(p.amountPaid||0);
+    rows.push([
+      i+1,
+      p.client,
+      p.phone||"",
+      fd(p.deliveryDate),
+      STATUS_LABELS[p.status]||p.status,
+      prods,
+      p.totalAmount,
+      p.amountPaid||0,
+      pend,
+      p.note||""
+    ]);
   });
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-  downloadFile("\uFEFF"+csv, `pedidos_${m}.csv`, "text/csv;charset=utf-8;");
-  toast("📊 Exportando pedidos...");
+  rows.push([]);
+  const totPend = filtered.reduce((a,p)=>a+(p.totalAmount-(p.amountPaid||0)),0);
+  const totTotal = filtered.reduce((a,p)=>a+p.totalAmount,0);
+  rows.push(["","","","","","TOTAL",totTotal,"",totPend,""]);
+
+  // Resumen por estado
+  const rows2 = [
+    [`RESUMEN POR ESTADO — ${mesLabel.toUpperCase()}`],[],
+    ["Estado","Cantidad","Total $","Cobrado $","Pendiente $"]
+  ];
+  const byStatus = {};
+  filtered.forEach(p=>{
+    const s = STATUS_LABELS[p.status]||p.status;
+    if(!byStatus[s]) byStatus[s]={qty:0,total:0,pagado:0};
+    byStatus[s].qty++;
+    byStatus[s].total  += p.totalAmount;
+    byStatus[s].pagado += p.amountPaid||0;
+  });
+  Object.entries(byStatus).forEach(([st,v])=>{
+    rows2.push([st, v.qty, v.total, v.pagado, v.total-v.pagado]);
+  });
+
+  xlsxDownload([
+    {name:"Pedidos", rows, colWidths:[4,20,14,14,12,40,12,12,12,25]},
+    {name:"Resumen", rows:rows2, colWidths:[16,10,14,14,14]}
+  ], `pedidos_${m}.xlsx`);
+  toast("📊 Generando Excel...");
 }
 
-// ─── PDF: Ventas (usando ventana de impresión) ───
+// ─── EXCEL: Gastos ───────────────────────────────
+function exportGastosExcel(){
+  const m = document.getElementById("g-filter").value || month();
+  const filtered = expenses.filter(e=>e.date.startsWith(m));
+  if(!filtered.length){ toast("Sin gastos en este período"); return; }
+  const mesLabel = getMesLabel(m);
+  const total = filtered.reduce((a,e)=>a+e.amount,0);
+
+  const rows = [
+    [`GASTOS — ${mesLabel.toUpperCase()}`],
+    [`Generado el ${new Date().toLocaleDateString("es-AR")}`],
+    [],
+    ["#","Fecha","Categoría","Descripción","Monto $"]
+  ];
+  filtered.forEach((e,i)=>{
+    rows.push([i+1, fd(e.date), e.category, e.description, e.amount]);
+  });
+  rows.push([]);
+  rows.push(["","","","TOTAL",total]);
+
+  // Resumen por categoría
+  const byCat = {};
+  filtered.forEach(e=>{ byCat[e.category]=(byCat[e.category]||0)+e.amount; });
+  const rows2 = [
+    [`GASTOS POR CATEGORÍA — ${mesLabel.toUpperCase()}`],[],
+    ["Categoría","Total $","% del gasto"]
+  ];
+  Object.entries(byCat).sort((a,b)=>b[1]-a[1]).forEach(([cat,val])=>{
+    rows2.push([cat, val, total>0?+(val/total*100).toFixed(1)+"%":"0%"]);
+  });
+  rows2.push(["TOTAL", total, "100%"]);
+
+  xlsxDownload([
+    {name:"Gastos", rows, colWidths:[4,12,18,35,14]},
+    {name:"Por categoría", rows:rows2, colWidths:[22,14,14]}
+  ], `gastos_${m}.xlsx`);
+  toast("📊 Generando Excel...");
+}
+
+// ─── EXCEL: Costos & Márgenes ────────────────────
+function exportResumenExcel(){
+  const m = document.getElementById("cr-filter").value || month();
+  const mesLabel = getMesLabel(m);
+  const mS = sales.filter(s=>s.date.startsWith(m));
+  const mE = expenses.filter(e=>e.date.startsWith(m));
+  const totalVentas  = mS.reduce((a,s)=>a+s.total,0);
+  const totalGastos  = mE.reduce((a,e)=>a+e.amount,0);
+  let costoCalculado = 0;
+  mS.forEach(sale=>sale.items.forEach(it=>{
+    if(it.type==="product"){
+      const cUnit=calcCostoProducto(it.id);
+      if(cUnit!==null){
+        const unids=it.mode==="pack"?it.qty*(products.find(p=>p.id===it.id)?.packQty||1):it.qty;
+        costoCalculado+=cUnit*unids;
+      }
+    }
+  }));
+  const fijos    = (costConfig.items||[]).reduce((a,i)=>a+(Number(i.amount)||0),0);
+  const ganancia = totalVentas-Math.max(costoCalculado,totalGastos)-fijos;
+  const margenPct= totalVentas?+(ganancia/totalVentas*100).toFixed(1):0;
+
+  // Hoja 1: balance
+  const rows1 = [
+    [`BALANCE — ${mesLabel.toUpperCase()}`],
+    [`Generado el ${new Date().toLocaleDateString("es-AR")}`],
+    [],
+    ["Concepto","Monto $"],
+    ["Ventas brutas", totalVentas],
+    ["Costos variables (recetas)", costoCalculado],
+    ["Gastos registrados", totalGastos],
+    ["Costos fijos mensuales", fijos],
+    [],
+    ["Ganancia estimada", ganancia],
+    ["Margen neto %", margenPct+"%"]
+  ];
+
+  // Hoja 2: márgenes por producto
+  const prodMargens = products.map(p=>{
+    const mg=calcMargen(p); if(!mg) return null;
+    let unidsSold=0;
+    mS.forEach(s=>s.items.forEach(it=>{
+      if(it.type==="product"&&it.id===p.id)
+        unidsSold+=it.mode==="pack"?it.qty*(p.packQty||1):it.qty;
+    }));
+    return {...mg,name:p.name,unidsSold,gananciaTotal:mg.ganancia*unidsSold};
+  }).filter(Boolean).sort((a,b)=>b.gananciaTotal-a.gananciaTotal);
+
+  const rows2 = [
+    [`MÁRGENES POR PRODUCTO — ${mesLabel.toUpperCase()}`],[],
+    ["Producto","Unidades vendidas","Costo por u $","Precio venta $","Ganancia por u $","Margen %","Ganancia total $"]
+  ];
+  prodMargens.forEach(p=>{
+    rows2.push([p.name, p.unidsSold, p.costo, p.precio, p.ganancia, p.pct+"%", p.gananciaTotal]);
+  });
+  if(!prodMargens.length) rows2.push(["Sin datos de costos cargados","","","","","",""]);
+
+  xlsxDownload([
+    {name:"Balance", rows:rows1, colWidths:[30,16]},
+    {name:"Márgenes", rows:rows2, colWidths:[25,18,14,14,16,10,16]}
+  ], `costos_margenes_${m}.xlsx`);
+  toast("📊 Generando Excel...");
+}
+
+// ─── EXCEL: Recetas ──────────────────────────────
+function exportRecetasExcel(){
+  if(!recetas.length){ toast("Sin recetas para exportar"); return; }
+
+  // Hoja 1: todas las recetas en tabla limpia
+  const rows1 = [
+    ["RECETARIO — FONTANA DI PASTA"],
+    [`Generado el ${new Date().toLocaleDateString("es-AR")}`],
+    [],
+    ["Receta","Categoría","Rinde (g)","Peso/u (g)","Unidades","Costo total $","Costo/u $","Producto vinculado","Precio venta $","Margen %"]
+  ];
+  recetas.forEach(r=>{
+    const costoBase = recetaCostoBase(r);
+    const costoU    = r.rendU>0 ? costoBase/r.rendU : 0;
+    const prod      = products.find(p=>String(p.id)===String(r.productoId));
+    const margen    = prod&&costoU&&prod.unitPrice ? Math.round((prod.unitPrice-costoU)/prod.unitPrice*100) : "";
+    rows1.push([
+      r.nombre,
+      r.categoria||"",
+      r.rendG||"",
+      r.pesoUnitG||"",
+      r.rendU||"",
+      costoBase ? Math.round(costoBase) : "",
+      costoU ? +costoU.toFixed(2) : "",
+      prod ? prod.name : "",
+      prod ? prod.unitPrice : "",
+      margen !== "" ? margen+"%" : ""
+    ]);
+  });
+
+  // Hoja 2: ingredientes de todas las recetas
+  const rows2 = [
+    ["INGREDIENTES POR RECETA"],
+    [],
+    ["Receta","Ingrediente","Cantidad (g)","Precio/kg $","Costo $"]
+  ];
+  recetas.forEach(r=>{
+    (r.ingredientes||[]).forEach(ing=>{
+      const ins = ing.insId ? insumos.find(x=>String(x.id)===String(ing.insId)) : null;
+      const nombre  = ins ? ins.nombre : (ing.name||"");
+      const precioKg= ins ? (ins.precioPorKg||"") : "";
+      const costoIng= ins&&ins.precioPorKg&&ing.qty ? Math.round((Number(ing.qty)/1000)*Number(ins.precioPorKg)) : "";
+      rows2.push([r.nombre, nombre, ing.qty||"", precioKg, costoIng]);
+    });
+  });
+
+  // Hoja 3: lista de insumos y precios
+  const rows3 = [
+    ["INSUMOS Y PRECIOS"],
+    [`Actualizado el ${new Date().toLocaleDateString("es-AR")}`],
+    [],
+    ["Insumo","Precio por kg $"]
+  ];
+  insumos.forEach(ins=>{
+    rows3.push([ins.nombre, ins.precioPorKg||""]);
+  });
+
+  xlsxDownload([
+    {name:"Recetas", rows:rows1, colWidths:[28,14,12,12,10,14,12,22,14,10]},
+    {name:"Ingredientes", rows:rows2, colWidths:[28,22,14,14,12]},
+    {name:"Insumos", rows:rows3, colWidths:[28,16]}
+  ], `recetas_fontana.xlsx`);
+  toast("📊 Generando Excel...");
+}
 function exportVentasPDF(){
   const m = document.getElementById("v-filter").value || month();
   const filtered = sales.filter(s=>s.date.startsWith(m));
@@ -3556,293 +3825,6 @@ function exportPedidosPDF(){
   openPrintWindow(html);
 }
 
-// ─── EXCEL: Gastos ───
-function exportGastosExcel(){
-  const m = document.getElementById("g-filter").value || month();
-  const filtered = expenses.filter(e=>e.date.startsWith(m));
-  if(!filtered.length){ toast("Sin gastos en este período"); return; }
-  const rows=[["Fecha","Categoría","Descripción","Monto"]];
-  filtered.forEach(e=> rows.push([fd(e.date), e.category, e.description, e.amount]));
-  const total = filtered.reduce((a,e)=>a+e.amount,0);
-  // Subtotales por categoría
-  const byCat={};
-  filtered.forEach(e=>{ byCat[e.category]=(byCat[e.category]||0)+e.amount; });
-  rows.push(["","","",""]);
-  rows.push(["","","RESUMEN POR CATEGORÍA",""]);
-  Object.entries(byCat).forEach(([cat,val])=> rows.push(["","",cat,val]));
-  rows.push(["","","TOTAL MES",total]);
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-  downloadFile("\uFEFF"+csv, `gastos_${m}.csv`, "text/csv;charset=utf-8;");
-  toast("📊 Exportando gastos...");
-}
-
-// ─── PDF: Gastos ───
-function exportGastosPDF(){
-  const m = document.getElementById("g-filter").value || month();
-  const filtered = expenses.filter(e=>e.date.startsWith(m));
-  if(!filtered.length){ toast("Sin gastos en este período"); return; }
-  const total = filtered.reduce((a,e)=>a+e.amount,0);
-  const mesLabel = getMesLabel(m);
-  const byCat={};
-  filtered.forEach(e=>{ byCat[e.category]=(byCat[e.category]||0)+e.amount; });
-
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
-  <title>Gastos ${mesLabel}</title>
-  <style>
-    body{font-family:sans-serif;padding:24px;color:#222;max-width:700px;margin:0 auto}
-    h1{color:#7a2d10;margin-bottom:4px}
-    .sub{color:#888;font-size:13px;margin-bottom:20px}
-    table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px}
-    th{background:#f5ebe0;color:#7a2d10;padding:8px 10px;text-align:left;border-bottom:2px solid #e8d5c4}
-    td{padding:7px 10px;border-bottom:1px solid #f0e0d0}
-    .total-row td{font-weight:700;color:#7a2d10;background:#fdf6f0;border-top:2px solid #7a2d10}
-    .resumen{background:#f5ebe0;border-radius:8px;padding:12px 16px;margin-bottom:20px}
-    .resumen h3{color:#7a2d10;margin:0 0 10px;font-size:14px}
-    .rrow{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;border-bottom:1px solid #e8d5c4}
-    .rrow:last-child{border:none;font-weight:700;font-size:14px;padding-top:8px}
-    @media print{body{padding:0}}
-  </style></head><body>
-  <h1>🍝 Fontana di Pasta</h1>
-  <div class="sub">Reporte de gastos · ${mesLabel}</div>
-
-  <div class="resumen">
-    <h3>Resumen por categoría</h3>
-    ${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,val])=>`
-      <div class="rrow"><span>${cat}</span><span>${fmt(val)}</span></div>`).join("")}
-    <div class="rrow"><span>TOTAL</span><span>${fmt(total)}</span></div>
-  </div>
-
-  <table>
-    <thead><tr><th>Fecha</th><th>Categoría</th><th>Descripción</th><th style="text-align:right">Monto</th></tr></thead>
-    <tbody>
-      ${filtered.map(e=>`<tr>
-        <td>${fd(e.date)}</td>
-        <td style="font-size:11px;color:#888">${e.category}</td>
-        <td>${e.description}</td>
-        <td style="text-align:right;font-weight:600;color:#7a2d10">${fmt(e.amount)}</td>
-      </tr>`).join("")}
-      <tr class="total-row"><td colspan="3">TOTAL ${mesLabel}</td><td style="text-align:right">${fmt(total)}</td></tr>
-    </tbody>
-  </table>
-  <p style="font-size:11px;color:#bbb">Generado el ${new Date().toLocaleDateString("es-AR")} · ${filtered.length} registros</p>
-  </body></html>`;
-  openPrintWindow(html);
-}
-
-// ─── PDF: Resumen Costos & Márgenes ───
-function exportResumenPDF(){
-  const m = document.getElementById("cr-filter").value || month();
-  const mesLabel = getMesLabel(m);
-  const mS = sales.filter(s=>s.date.startsWith(m));
-  const mE = expenses.filter(e=>e.date.startsWith(m));
-  const totalVentas = mS.reduce((a,s)=>a+s.total,0);
-  const totalGastos = mE.reduce((a,e)=>a+e.amount,0);
-  let costoCalculado=0;
-  mS.forEach(sale=>sale.items.forEach(it=>{
-    if(it.type==="product"){
-      const cUnit=calcCostoProducto(it.id);
-      if(cUnit!==null){
-        const unids=it.mode==="pack"?it.qty*(products.find(p=>p.id===it.id)?.packQty||1):it.qty;
-        costoCalculado+=cUnit*unids;
-      }
-    }
-  }));
-  const fijos=(costConfig.items||[]).reduce((a,i)=>a+(Number(i.amount)||0),0);
-  const gananciaEstimada=totalVentas-Math.max(costoCalculado,totalGastos)-fijos;
-  const margenPct=totalVentas?Math.round(gananciaEstimada/totalVentas*100):0;
-
-  const prodMargens=products.map(p=>{
-    const mg=calcMargen(p); if(!mg) return null;
-    let unidsSold=0;
-    mS.forEach(s=>s.items.forEach(it=>{
-      if(it.type==="product"&&it.id===p.id)
-        unidsSold+=it.mode==="pack"?it.qty*(p.packQty||1):it.qty;
-    }));
-    return {...mg,name:p.name,unidsSold,gananciaTotal:mg.ganancia*unidsSold};
-  }).filter(Boolean).sort((a,b)=>b.gananciaTotal-a.gananciaTotal);
-
-  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
-  <title>Costos y Márgenes ${mesLabel}</title>
-  <style>
-    body{font-family:sans-serif;padding:24px;color:#222;max-width:700px;margin:0 auto}
-    h1{color:#c4622d;margin-bottom:4px}
-    .sub{color:#888;font-size:13px;margin-bottom:20px}
-    .balance{background:#f5ebe0;border-radius:8px;padding:14px 18px;margin-bottom:20px}
-    .balance h3{color:#7a2d10;margin:0 0 10px;font-size:14px;text-transform:uppercase;letter-spacing:.5px}
-    .brow{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;border-bottom:1px solid #e8d5c4}
-    .brow:last-child{border:none;font-weight:700;font-size:15px;padding-top:10px}
-    .margen-big{text-align:center;padding:12px;background:#fff;border-radius:8px;margin-top:10px}
-    .margen-num{font-size:36px;font-weight:900;color:${margenPct>=30?"#5c7a3a":margenPct>=10?"#e67e22":"#e74c3c"}}
-    table{width:100%;border-collapse:collapse;font-size:12px}
-    th{background:#f5ebe0;color:#7a2d10;padding:7px 10px;text-align:left;border-bottom:2px solid #e8d5c4}
-    td{padding:6px 10px;border-bottom:1px solid #f0e0d0}
-    .verde{color:#5c7a3a;font-weight:700} .amarillo{color:#e67e22;font-weight:700} .rojo{color:#e74c3c;font-weight:700}
-    @media print{body{padding:0}}
-  </style></head><body>
-  <h1>🍝 Fontana di Pasta</h1>
-  <div class="sub">Costos & Márgenes · ${mesLabel}</div>
-
-  <div class="balance">
-    <h3>Balance estimado</h3>
-    <div class="brow"><span>Ventas brutas</span><span style="color:#c4622d;font-weight:600">${fmt(totalVentas)}</span></div>
-    <div class="brow"><span>Costos variables (recetas)</span><span style="color:#7a4f3a">${fmt(costoCalculado)}</span></div>
-    <div class="brow"><span>Gastos registrados</span><span style="color:#7a4f3a">${fmt(totalGastos)}</span></div>
-    <div class="brow"><span>Costos fijos</span><span style="color:#7a4f3a">${fmt(fijos)}</span></div>
-    <div class="brow"><span>Ganancia estimada</span><span style="color:${gananciaEstimada>=0?"#5c7a3a":"#e74c3c"}">${fmt(gananciaEstimada)}</span></div>
-    <div class="margen-big">
-      <div class="margen-num">${margenPct}%</div>
-      <div style="font-size:12px;color:#aaa">margen neto estimado</div>
-    </div>
-  </div>
-
-  ${prodMargens.length?`
-  <table>
-    <thead><tr><th>#</th><th>Producto</th><th>Unid. vendidas</th><th>Costo/u</th><th>Precio/u</th><th>Margen</th><th>Ganancia total</th></tr></thead>
-    <tbody>
-      ${prodMargens.map((p,i)=>`<tr>
-        <td>${["🥇","🥈","🥉","4","5","6","7","8"][i]||i+1}</td>
-        <td><strong>${p.name}</strong></td>
-        <td style="text-align:center">${p.unidsSold}</td>
-        <td>${fmt(p.costo)}</td>
-        <td style="color:#c4622d">${fmt(p.precio)}</td>
-        <td class="${p.pct>=50?"verde":p.pct>=25?"amarillo":"rojo"}">${p.pct}%</td>
-        <td style="font-weight:600;color:#5c7a3a">${fmt(p.gananciaTotal)}</td>
-      </tr>`).join("")}
-    </tbody>
-  </table>`:"<p style='color:#aaa;font-size:13px'>Sin datos de costos por producto cargados.</p>"}
-  <p style="font-size:11px;color:#bbb;margin-top:20px">Generado el ${new Date().toLocaleDateString("es-AR")}</p>
-  </body></html>`;
-  openPrintWindow(html);
-}
-
-// ─── EXCEL: Resumen Costos ───
-function exportResumenExcel(){
-  const m = document.getElementById("cr-filter").value || month();
-  const mesLabel = getMesLabel(m);
-  const mS = sales.filter(s=>s.date.startsWith(m));
-  const mE = expenses.filter(e=>e.date.startsWith(m));
-  const totalVentas=mS.reduce((a,s)=>a+s.total,0);
-  const totalGastos=mE.reduce((a,e)=>a+e.amount,0);
-  let costoCalculado=0;
-  mS.forEach(sale=>sale.items.forEach(it=>{
-    if(it.type==="product"){
-      const cUnit=calcCostoProducto(it.id);
-      if(cUnit!==null){
-        const unids=it.mode==="pack"?it.qty*(products.find(p=>p.id===it.id)?.packQty||1):it.qty;
-        costoCalculado+=cUnit*unids;
-      }
-    }
-  }));
-  const fijos=(costConfig.items||[]).reduce((a,i)=>a+(Number(i.amount)||0),0);
-  const ganancia=totalVentas-Math.max(costoCalculado,totalGastos)-fijos;
-  const margenPct=totalVentas?Math.round(ganancia/totalVentas*100):0;
-
-  const rows=[
-    [`BALANCE ESTIMADO — ${mesLabel}`,""],
-    ["Ventas brutas", totalVentas],
-    ["Costos variables (recetas)", costoCalculado],
-    ["Gastos registrados", totalGastos],
-    ["Costos fijos", fijos],
-    ["Ganancia estimada", ganancia],
-    ["Margen neto %", margenPct+"%"],
-    ["",""],
-    ["MÁRGENES POR PRODUCTO",""],
-    ["Producto","Unid. vendidas","Costo/u","Precio/u","Margen %","Ganancia total"],
-  ];
-
-  const prodMargens=products.map(p=>{
-    const mg=calcMargen(p); if(!mg) return null;
-    let unidsSold=0;
-    mS.forEach(s=>s.items.forEach(it=>{
-      if(it.type==="product"&&it.id===p.id)
-        unidsSold+=it.mode==="pack"?it.qty*(p.packQty||1):it.qty;
-    }));
-    return {...mg,name:p.name,unidsSold,gananciaTotal:mg.ganancia*unidsSold};
-  }).filter(Boolean).sort((a,b)=>b.gananciaTotal-a.gananciaTotal);
-
-  prodMargens.forEach(p=>rows.push([p.name,p.unidsSold,p.costo,p.precio,p.pct+"%",p.gananciaTotal]));
-
-  const csv=rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
-  downloadFile("\uFEFF"+csv, `costos_margenes_${m}.csv`, "text/csv;charset=utf-8;");
-  toast("📊 Exportando costos...");
-}
-
-// ─── EXCEL: Recetas ───
-function exportRecetasExcel(){
-  if(!recetas.length){ toast("Sin recetas para exportar"); return; }
-
-  const rows = [];
-
-  recetas.forEach(r => {
-    // Encabezado de la receta
-    rows.push([""]);
-    rows.push([`RECETA: ${r.nombre}`, "", "", "", "", ""]);
-    rows.push([
-      r.categoria ? `Categoría: ${r.categoria}` : "",
-      r.rendG ? `Rendimiento: ${r.rendG}g` : "",
-      r.pesoUnitG ? `Peso/u: ${r.pesoUnitG}g` : "",
-      r.rendU ? `Rinde: ${r.rendU} unidades` : "",
-      "", ""
-    ]);
-
-    // Tabla de ingredientes
-    rows.push(["Insumo", "Cantidad (g)", "Precio/kg", "Costo ingrediente"]);
-
-    const ings = r.ingredientes || [];
-    let costoTotal = 0;
-    if(ings.length){
-      ings.forEach(ing => {
-        let nombre = ing.name || "";
-        let costoIng = 0;
-        let precioKg = "";
-        if(ing.insId){
-          const ins = insumos.find(x => String(x.id) === String(ing.insId));
-          if(ins){
-            nombre = ins.nombre;
-            precioKg = ins.precioPorKg || "";
-            if(ins.precioPorKg && ing.qty){
-              costoIng = (Number(ing.qty)/1000) * Number(ins.precioPorKg);
-            }
-          }
-        } else {
-          costoIng = Number(ing.costo)||0;
-        }
-        costoTotal += costoIng;
-        rows.push([nombre, ing.qty || "", precioKg ? `$${precioKg}` : "", costoIng ? `$${Math.round(costoIng)}` : ""]);
-      });
-    } else {
-      rows.push(["Sin ingredientes cargados", "", "", ""]);
-    }
-
-    // Totales
-    const costoU = r.rendU > 0 ? costoTotal / r.rendU : 0;
-    rows.push(["", "", "COSTO TOTAL RECETA:", costoTotal ? `$${Math.round(costoTotal)}` : "—"]);
-    if(costoU) rows.push(["", "", "Costo por unidad:", `$${costoU.toFixed(2)}`]);
-
-    // Producto vinculado y margen
-    if(r.productoId){
-      const prod = products.find(p => String(p.id) === String(r.productoId));
-      if(prod && costoU){
-        const margen = prod.unitPrice > 0 ? Math.round((prod.unitPrice - costoU) / prod.unitPrice * 100) : null;
-        rows.push(["", "", `Precio venta (${prod.name}):`, `$${prod.unitPrice}`]);
-        if(margen !== null) rows.push(["", "", "Margen:", `${margen}%`]);
-      }
-    }
-
-    // Notas
-    if(r.notas) rows.push(["Notas:", r.notas, "", ""]);
-  });
-
-  // Hoja de insumos al final
-  rows.push([""]);
-  rows.push(["LISTA DE INSUMOS Y PRECIOS", ""]);
-  rows.push(["Insumo", "Precio por kg"]);
-  insumos.forEach(ins => rows.push([ins.nombre, ins.precioPorKg ? `$${ins.precioPorKg}` : ""]));
-
-  const csv = rows.map(r => r.map(c => `"${String(c||"").replace(/"/g,'\"\"')}"` ).join(",")).join("\n");
-  downloadFile("\uFEFF" + csv, `recetas_fontana.csv`, "text/csv;charset=utf-8;");
-  toast("📊 Exportando recetas...");
-}
 
 function downloadFile(content, filename, mime){
   const blob = new Blob([content], {type: mime});
