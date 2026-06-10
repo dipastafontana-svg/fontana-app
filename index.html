@@ -2581,19 +2581,37 @@ function renderInsumos(){
       Todavía no tenés insumos. Tocá "+ Agregar" para empezar.</div>`;
     return;
   }
-  el.innerHTML = insumos.map(ins=>`
-    <div style="display:grid;grid-template-columns:1fr 110px 24px;gap:6px;align-items:center;margin-bottom:7px">
+  // Unidades disponibles con su label de precio
+  const UNITS = [
+    {val:"g",    lbl:"g",      precioLbl:"precio/kg"},
+    {val:"ml",   lbl:"ml",     precioLbl:"precio/L"},
+    {val:"kg",   lbl:"kg",     precioLbl:"precio/kg"},
+    {val:"L",    lbl:"L",      precioLbl:"precio/L"},
+    {val:"u",    lbl:"unidad", precioLbl:"precio/u"},
+    {val:"doc",  lbl:"docena", precioLbl:"precio/doc"},
+  ];
+  el.innerHTML = insumos.map(ins=>{
+    const unit = ins.unit||"g";
+    const u = UNITS.find(x=>x.val===unit)||UNITS[0];
+    return `
+    <div style="display:grid;grid-template-columns:1fr 90px 80px 24px;gap:5px;align-items:center;margin-bottom:7px">
       <input class="ins-nombre" placeholder="Ej: Ricota, Harina..." value="${escHtml(ins.nombre||'')}"
         onblur="insumoSet(${ins.id},'nombre',this.value)"
         style="font-size:13px;padding:7px 10px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fffaf7;font-family:sans-serif"/>
       <div style="position:relative">
-        <input type="number" placeholder="$ / kg" value="${ins.precioPorKg||''}"
+        <input type="number" placeholder="Precio" value="${ins.precioPorKg||''}"
           onblur="insumoSet(${ins.id},'precioPorKg',this.value)"
           style="font-size:13px;padding:7px 8px;text-align:right;width:100%;border-radius:8px;border:1.5px solid #f0ddd0;background:#fffaf7;font-family:sans-serif"/>
-        <span style="position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:9px;color:#bbb;font-family:sans-serif;pointer-events:none">$/kg</span>
+        <span style="position:absolute;right:5px;top:50%;transform:translateY(-50%);font-size:8px;color:#bbb;font-family:sans-serif;pointer-events:none">$ /${u.lbl}</span>
       </div>
+      <select onchange="insumoSet(${ins.id},'unit',this.value)"
+        style="font-size:12px;padding:6px 4px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fffaf7;font-family:sans-serif">
+        ${UNITS.map(x=>`<option value="${x.val}"${unit===x.val?' selected':''}>${x.lbl}</option>`).join("")}
+      </select>
       <button onclick="removeInsumo(${ins.id})" style="background:none;border:none;cursor:pointer;color:#ddd;font-size:16px;padding:0">✕</button>
-    </div>`).join("");
+    </div>
+    <div style="font-size:9px;color:#bbb;font-family:sans-serif;margin:-5px 0 6px 2px">${u.precioLbl}</div>
+    `}).join("");
 }
 
 // ─── Formulario ingredientes receta ─────────────
@@ -2624,13 +2642,36 @@ function recalcRendimiento(){
   }
 }
 
+// ─── Resolver un ingrediente de receta a sus datos completos ─────
+// Soporta modelo nuevo (insId+qty) y modelo viejo (name+unit+qty)
+function resolveIng(ing){
+  if(ing.insId){
+    const ins = insumos.find(x=>String(x.id)===String(ing.insId));
+    return {
+      nombre:   ins ? ins.nombre : "?",
+      qty:      Number(ing.qty)||0,
+      unit:     ins ? (ins.unit||"g") : "g",
+      precioBase: ins ? (Number(ins.precioPorKg)||0) : 0, // precio por kg o por unidad según ins.unit
+    };
+  }
+  return {
+    nombre:     ing.name||"?",
+    qty:        Number(ing.qty)||0,
+    unit:       ing.unit||"g",
+    precioBase: Number(ing.costo||ing.precioPorKg)||0,
+  };
+}
+
+// Costo de un ingrediente de receta usando resolveIng
 function calcIngCostoFromInsumo(ing){
-  // ing = {insId, qty (en gramos)}
-  const ins = insumos.find(i=>i.id===ing.insId || String(i.id)===String(ing.insId));
-  if(!ins || !ins.precioPorKg || !ing.qty) return 0;
-  const precioKg = Number(ins.precioPorKg)||0;
-  const cantG = Number(ing.qty)||0;
-  return (cantG / 1000) * precioKg;
+  const r = resolveIng(ing);
+  if(!r.qty || !r.precioBase) return 0;
+  // Si la unidad es g o ml → precio está expresado por kg/L → dividir por 1000
+  if(r.unit==="g" || r.unit==="ml") return (r.qty/1000) * r.precioBase;
+  // Si es kg o L → precio por kg/L → multiplicar directo
+  if(r.unit==="kg" || r.unit==="L") return r.qty * r.precioBase;
+  // Unidad (u, docena, etc.) → precio por unidad
+  return r.qty * r.precioBase;
 }
 
 function renderRecFormIngs(){
@@ -2641,22 +2682,28 @@ function renderRecFormIngs(){
     const costo = calcIngCostoFromInsumo(ing);
     costoTotalForm += costo;
     const ins = insumos.find(x=>String(x.id)===String(ing.insId));
-    const precioRef = ins && ins.precioPorKg ? `${fmt(ins.precioPorKg)}/kg` : "";
+    const insUnit = ins ? (ins.unit||"g") : "g";
+    const unitLabel = insUnit==="g"?"g" : insUnit==="ml"?"ml" : insUnit==="kg"?"kg" : insUnit==="L"?"L" : insUnit;
+    const precioLabel = ins && ins.precioPorKg
+      ? `${fmt(ins.precioPorKg)}/${insUnit==="g"?"kg":insUnit==="ml"?"L":insUnit}`
+      : "";
     return `
     <div style="display:grid;grid-template-columns:1fr 90px 24px;gap:6px;align-items:center;margin-bottom:7px">
       <select class="ing-sel" onchange="recFormIngSet(${i},'insId',this.value)"
         style="font-size:13px;padding:7px 8px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fffaf7;font-family:sans-serif">
         <option value="">— Insumo —</option>
         ${insumos.map(ins=>`<option value="${ins.id}"${String(ing.insId)===String(ins.id)?' selected':''}>
-          ${escHtml(ins.nombre)}${ins.precioPorKg?' ('+fmt(ins.precioPorKg)+'/kg)':''}</option>`).join("")}
+          ${escHtml(ins.nombre)}${ins.precioPorKg?' ('+fmt(ins.precioPorKg)+'/'+(ins.unit==='g'?'kg':ins.unit==='ml'?'L':ins.unit||'kg')+')':''}</option>`).join("")}
         <option value="__nuevo__">+ Agregar nuevo insumo...</option>
       </select>
       <div>
-        <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Gramos" value="${ing.qty||''}"
+        <input type="text" inputmode="decimal" pattern="[0-9.]*" placeholder="${unitLabel}" value="${ing.qty||''}"
           onblur="recFormIngSet(${i},'qty',this.value)"
           onkeydown="if(event.key==='Enter'){this.blur();}"
           style="font-size:13px;padding:7px 8px;text-align:right;width:100%;border-radius:8px;border:1.5px solid #f0ddd0;background:#fffaf7;font-family:sans-serif"/>
-        ${costo > 0 ? `<div style="font-size:10px;color:#5c7a3a;font-family:sans-serif;text-align:right;margin-top:2px;font-weight:600">${fmt(costo)}</div>` : `<div style="font-size:10px;color:#ccc;font-family:sans-serif;text-align:right;margin-top:2px">g</div>`}
+        ${costo > 0
+          ? `<div style="font-size:10px;color:#5c7a3a;font-family:sans-serif;text-align:right;margin-top:2px;font-weight:600">${fmt(costo)}</div>`
+          : `<div style="font-size:10px;color:#ccc;font-family:sans-serif;text-align:right;margin-top:2px">${unitLabel}${precioLabel?' · '+precioLabel:''}</div>`}
       </div>
       <button onclick="recFormRemoveIng(${i})" style="background:none;border:none;cursor:pointer;color:#ddd;font-size:16px;padding:0;line-height:1">✕</button>
     </div>`;
@@ -2798,50 +2845,37 @@ function fmtQty(val, unit){
 function recetaRecalculate(receta, ingIdx, stockDisponible){
   const ing = receta.ingredientes[ingIdx];
   if(!ing) return null;
-  const cantBase = toBaseUnit(ing.qty, ing.unit);
+  const ri = resolveIng(ing);
+  const cantBase = toBaseUnit(ri.qty, ri.unit);
   if(!cantBase) return null;
-  const stockBase = toBaseUnit(stockDisponible, ing.unit);
+  const stockBase = toBaseUnit(stockDisponible, ri.unit);
   const factor = stockBase / cantBase;
 
-  const ingredientesAdj = receta.ingredientes.map(i => ({
-    ...i,
-    qtyAdj: toBaseUnit(i.qty, i.unit) * factor,
-    costoAdj: (()=>{
-      const qty  = Number(i.qty)||0;
-      const unit = i.unit||'g';
-      const precio = i.insId
-        ? (()=>{ const ins=insumos.find(x=>String(x.id)===String(i.insId)); return ins?Number(ins.precioPorKg)||0:0; })()
-        : Number(i.costo)||0;
-      if(!qty || !precio) return 0;
-      const base = (unit==='g'||unit==='ml') ? (qty/1000)*precio : qty*precio;
-      return base * factor;
-    })()
-  }));
+  const ingredientesAdj = receta.ingredientes.map(i => {
+    const ri2 = resolveIng(i);
+    const qtyAdj = toBaseUnit(ri2.qty, ri2.unit) * factor;
+    const costoAdj = ri2.precioBase
+      ? (()=>{
+          const base = (ri2.unit==='g'||ri2.unit==='ml') ? (ri2.qty/1000)*ri2.precioBase : ri2.qty*ri2.precioBase;
+          return base * factor;
+        })()
+      : 0;
+    return { ...i, qtyAdj, costoAdj };
+  });
 
   const costoTotal = ingredientesAdj.reduce((a,i)=>a+(i.costoAdj||0), 0);
-  const rendGAdj = (receta.rendG||0) * factor;
-  const rendUAdj = receta.pesoUnitG > 0 ? Math.floor(rendGAdj/receta.pesoUnitG) : Math.round((receta.rendU||0)*factor);
-
+  const rendGAdj   = (receta.rendG||0) * factor;
+  const rendUAdj   = receta.pesoUnitG > 0 ? Math.floor(rendGAdj/receta.pesoUnitG) : Math.round((receta.rendU||0)*factor);
   return { factor, ingredientesAdj, costoTotal, rendGAdj, rendUAdj };
 }
 
 // ─── Calcular costo total base de receta ─────────
 function recetaCostoBase(receta){
   return (receta.ingredientes||[]).reduce((a,i)=>{
-    const qty = Number(i.qty)||0;
-    if(!qty) return a;
-    // Modelo nuevo: insId + gramos
-    if(i.insId){
-      const ins = insumos.find(x=>String(x.id)===String(i.insId));
-      if(ins && ins.precioPorKg) return a + (qty/1000)*Number(ins.precioPorKg);
-      return a;
-    }
-    // Modelo viejo: qty + unit + costo (costo = precio/kg)
-    const unit = i.unit||'g';
-    const precioKg = Number(i.costo)||0;
-    if(!precioKg) return a;
-    if(unit==='g'||unit==='ml') return a + (qty/1000)*precioKg;
-    return a + qty*precioKg; // kg, L, u
+    const ri = resolveIng(i);
+    if(!ri.qty || !ri.precioBase) return a;
+    if(ri.unit==='g'||ri.unit==='ml') return a + (ri.qty/1000)*ri.precioBase;
+    return a + ri.qty*ri.precioBase;
   }, 0);
 }
 
@@ -2889,22 +2923,20 @@ function renderRecetas(){
         ${(r.ingredientes||[]).length ? `
         <table class="rec-ing-table">
           <thead><tr>
-            <th>Insumo</th><th style="text-align:center">Cant.</th><th>$/kg</th><th style="text-align:right">Costo</th>
+            <th>Insumo</th><th style="text-align:center">Cant.</th><th>$/unidad</th><th style="text-align:right">Costo</th>
           </tr></thead>
           <tbody>${(r.ingredientes||[]).map(ing=>{
-            const ins = ing.insId ? insumos.find(x=>String(x.id)===String(ing.insId)) : null;
-            const nombre = ins ? ins.nombre : (ing.name||'?');
-            const qty = Number(ing.qty)||0;
-            const unit = ing.unit||'g';
-            const precioKg = ins ? Number(ins.precioPorKg)||0 : Number(ing.costo)||0;
-            let costoIng = 0;
-            if(qty && precioKg){
-              costoIng = (unit==='g'||unit==='ml'||!ing.unit) ? (qty/1000)*precioKg : qty*precioKg;
-            }
+            const ri = resolveIng(ing);
+            const precioLabel = ri.precioBase
+              ? `${fmt(ri.precioBase)}/${ri.unit==='g'?'kg':ri.unit==='ml'?'L':ri.unit}`
+              : '';
+            const costoIng = ri.precioBase
+              ? ((ri.unit==='g'||ri.unit==='ml') ? (ri.qty/1000)*ri.precioBase : ri.qty*ri.precioBase)
+              : 0;
             return `<tr>
-            <td>${escHtml(nombre)}</td>
-            <td style="text-align:center">${qty}g</td>
-            <td style="font-size:10px;color:#aaa;font-family:sans-serif">${precioKg?fmt(precioKg):''}</td>
+            <td>${escHtml(ri.nombre)}</td>
+            <td style="text-align:center">${ri.qty} ${ri.unit}</td>
+            <td style="font-size:10px;color:#aaa;font-family:sans-serif">${precioLabel}</td>
             <td>${costoIng?fmt(costoIng):'-'}</td>
           </tr>`;}).join("")}</tbody>
         </table>
@@ -2963,27 +2995,30 @@ function calcRecetaChange(){
   const r = recetas.find(r=>r.id===id);
   if(!r || !r.ingredientes.length){ if(sec) sec.style.display="none"; return; }
   sec.style.display = "block";
-  // Poblar select de ingredientes
   const ingSel = document.getElementById("calc-ing-sel");
   ingSel.innerHTML = `<option value="">— Elegí ingrediente —</option>` +
-    r.ingredientes.map((ing,i)=>`<option value="${i}">${escHtml(ing.name)} (${ing.qty} ${ing.unit})</option>`).join("");
+    r.ingredientes.map((ing,i)=>{
+      const ri = resolveIng(ing);
+      return `<option value="${i}">${escHtml(ri.nombre)} (${ri.qty} ${ri.unit})</option>`;
+    }).join("");
   if(res) res.style.display="none";
   document.getElementById("calc-stock-val").value = "";
   document.getElementById("calc-ing-unit").textContent = "";
 }
 
 function calcRecetaCompute(){
-  const recId = Number(document.getElementById("calc-receta-sel").value);
+  const recId  = Number(document.getElementById("calc-receta-sel").value);
   const ingIdx = document.getElementById("calc-ing-sel").value;
   const stockVal = document.getElementById("calc-stock-val").value;
-  const res = document.getElementById("calc-result");
+  const res      = document.getElementById("calc-result");
   const unitSpan = document.getElementById("calc-ing-unit");
 
   if(ingIdx === ""){ if(res) res.style.display="none"; return; }
   const r = recetas.find(r=>r.id===recId);
   if(!r){ if(res) res.style.display="none"; return; }
-  const ing = r.ingredientes[Number(ingIdx)];
-  if(ing && unitSpan) unitSpan.textContent = ing.unit;
+  const ing   = r.ingredientes[Number(ingIdx)];
+  const ri    = resolveIng(ing);
+  if(unitSpan) unitSpan.textContent = ri.unit;
   if(!stockVal || Number(stockVal)<=0){ if(res) res.style.display="none"; return; }
 
   const calc = recetaRecalculate(r, Number(ingIdx), Number(stockVal));
@@ -2998,13 +3033,17 @@ function calcRecetaCompute(){
         <thead><tr>
           <th>Insumo</th><th style="text-align:center">Necesitás</th><th style="text-align:right">Costo</th>
         </tr></thead>
-        <tbody>${calc.ingredientesAdj.map(i=>`<tr>
-          <td>${escHtml(i.name)}</td>
-          <td style="text-align:center;font-weight:${i===r.ingredientes[Number(ingIdx)]?'700':'400'};color:${i.name===ing.name?'#c4622d':'#3d2b1f'}">
-            ${fmtQty(i.qtyAdj, i.unit)}
-          </td>
-          <td style="text-align:right">${i.costoAdj?fmt(i.costoAdj):'-'}</td>
-        </tr>`).join("")}</tbody>
+        <tbody>${calc.ingredientesAdj.map((item,idx)=>{
+          const riItem = resolveIng(r.ingredientes[idx]);
+          const esLimitante = idx === Number(ingIdx);
+          return `<tr>
+            <td>${escHtml(riItem.nombre)}</td>
+            <td style="text-align:center;font-weight:${esLimitante?'700':'400'};color:${esLimitante?'#c4622d':'#3d2b1f'}">
+              ${fmtQty(item.qtyAdj, riItem.unit)}
+            </td>
+            <td style="text-align:right">${item.costoAdj?fmt(item.costoAdj):'-'}</td>
+          </tr>`;
+        }).join("")}</tbody>
       </table>
       <div class="rec-result-box" style="margin-top:0">
         <div class="rec-result-row">
@@ -3702,15 +3741,16 @@ function exportRecetasExcel(){
   const rows2 = [
     ["INGREDIENTES POR RECETA"],
     [],
-    ["Receta","Ingrediente","Cantidad (g)","Precio/kg $","Costo $"]
+    ["Receta","Ingrediente","Cantidad","Unidad","Precio/unidad $","Costo $"]
   ];
   recetas.forEach(r=>{
     (r.ingredientes||[]).forEach(ing=>{
-      const ins = ing.insId ? insumos.find(x=>String(x.id)===String(ing.insId)) : null;
-      const nombre  = ins ? ins.nombre : (ing.name||"");
-      const precioKg= ins ? (ins.precioPorKg||"") : "";
-      const costoIng= ins&&ins.precioPorKg&&ing.qty ? Math.round((Number(ing.qty)/1000)*Number(ins.precioPorKg)) : "";
-      rows2.push([r.nombre, nombre, ing.qty||"", precioKg, costoIng]);
+      const ri = resolveIng(ing);
+      const precioLabel = ri.unit==='g'?'por kg':ri.unit==='ml'?'por L':`por ${ri.unit}`;
+      const costoIng = ri.precioBase&&ri.qty
+        ? Math.round((ri.unit==='g'||ri.unit==='ml') ? (ri.qty/1000)*ri.precioBase : ri.qty*ri.precioBase)
+        : "";
+      rows2.push([r.nombre, ri.nombre, ri.qty||"", ri.unit, ri.precioBase?`$${ri.precioBase} ${precioLabel}`:"", costoIng]);
     });
   });
 
