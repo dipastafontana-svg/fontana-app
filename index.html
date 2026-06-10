@@ -789,7 +789,7 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
 // ═══════════════════════════════════════════════
 //  CONFIG & STORAGE
 // ═══════════════════════════════════════════════
-const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwf-XErGXb8lt7Sks3MEMDv3VBnWhuf6Z7LOiwxfm0sOG753p87LwDm9RQBsYwk6uE5/exec";
+const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby6EDu67dAmBqhl_lnAzKTNHYwkPxCD0L0gJr8442Qx35dPOu2ZPIQEd40Acll36D1W/exec";
 let SCRIPT_URL = localStorage.getItem("fdp_script_url") || DEFAULT_SCRIPT_URL;
 // Siempre guardar la URL correcta en localStorage
 if(!localStorage.getItem("fdp_script_url")) localStorage.setItem("fdp_script_url", DEFAULT_SCRIPT_URL);
@@ -884,12 +884,14 @@ function setSyncState(state,msg){
 
 // ═══════════════════════════════════════════════
 //  SYNC — Google Apps Script
-//  sheetGet  → JSONP via <script> tag (GET, sin CORS)
-//  sheetSet  → fetch POST con Content-Type: text/plain
-//              (no dispara preflight CORS — Google Apps Script lo acepta)
 //
-//  Apps Script necesario (doGet + doPost):
-//  Ver bloque de instrucciones en ⚙️ / README del proyecto.
+//  LEER  → JSONP via <script> tag  (sin CORS, funciona siempre)
+//  ESCRIBIR → fetch POST no-cors   (opaque response, llega igual)
+//           + verificación con GET JSONP para confirmar que se guardó
+//
+//  El POST no-cors NO devuelve respuesta legible, pero SÍ llega al
+//  Apps Script cuando el script está publicado como "Cualquiera".
+//  Verificamos el write haciendo un GET inmediato y comparando el _ts.
 // ═══════════════════════════════════════════════
 
 // ── LEER ──────────────────────────────────────
@@ -906,36 +908,38 @@ function sheetGet(key){
 }
 
 // ── ESCRIBIR ───────────────────────────────────
-// Google Apps Script redirige el POST a una URL echo intermedia.
-// Solución: primero un GET para obtener la URL final, luego POST directo ahí.
-function sheetSet(key, val){
-  const body = JSON.stringify({ key, value: JSON.stringify(val) });
-  return fetch(SCRIPT_URL, { method: "GET", redirect: "follow" })
-    .then(r => {
-      // r.url es la URL final tras los redirects (el echo endpoint)
-      const finalUrl = r.url.split("?")[0]; // sacar query params del GET
-      console.log("[Fontana] sheetSet → POST a:", finalUrl);
-      return fetch(finalUrl, {
-        method:  "POST",
-        headers: { "Content-Type": "text/plain" },
-        body:    body
-      });
-    })
-    .then(r => r.text())
-    .then(t => {
-      console.log("[Fontana] sheetSet response:", t);
-      return t.trim() === "ok" ? "ok" : "error";
-    })
-    .catch(err => {
-      console.error("[Fontana] sheetSet error:", err);
-      return "error";
-    });
+// POST no-cors: llega al Apps Script aunque la respuesta sea opaca.
+// Después verificamos con un GET que el _ts quedó guardado.
+function sheetPost(key, val){
+  return fetch(SCRIPT_URL, {
+    method: "POST",
+    mode:   "no-cors",
+    body:   JSON.stringify({ key, value: JSON.stringify(val) })
+  }).then(()=>"sent").catch(()=>"error");
+}
+
+async function sheetSet(key, val){
+  // 1. Enviar el POST (no-cors, sin respuesta legible)
+  await sheetPost(key, val);
+  // 2. Esperar un momento para que el Apps Script procese
+  await new Promise(r => setTimeout(r, 1500));
+  // 3. Verificar con GET que el dato llegó (comparar _ts si es un bundle)
+  const saved = await sheetGet(key);
+  if(saved && typeof saved === "object" && val._ts && saved._ts === val._ts){
+    return "ok";
+  }
+  // Si val no tiene _ts (ej: dato simple), verificar que no sea null
+  if(!val._ts && saved !== null){
+    return "ok";
+  }
+  console.warn("[Fontana] sheetSet: POST enviado pero verificación falló", {sent: val._ts, got: saved?._ts});
+  return "error";
 }
 
 // ── GUARDAR TODO ───────────────────────────────
 async function saveAll(){
   lsSetAll();
-  localStorage.setItem("fdp_dirty","1"); // pendiente hasta confirmación real
+  localStorage.setItem("fdp_dirty","1");
   if(!SCRIPT_URL || !navigator.onLine){
     if(!navigator.onLine) _pendingSync = true;
     setSyncState("err", navigator.onLine ? "Sin URL" : "Sin conexión");
@@ -946,10 +950,10 @@ async function saveAll(){
   const bundle = { products, sales, expenses, clients,
     pedidos, combos, costConfig, productCosts,
     recetas, insumos: insumos||[], _ts: ts };
-  console.log(`[Fontana] saveAll bundle: ${JSON.stringify(bundle).length} chars`);
+  console.log(`[Fontana] saveAll: ${JSON.stringify(bundle).length} chars, ts=${ts}`);
   const result = await sheetSet("fdp_all", bundle);
   if(result !== "ok"){
-    setSyncState("err","⚠ No se pudo guardar en la nube");
+    setSyncState("err","⚠ No se pudo guardar — solo local");
     return;
   }
   localStorage.setItem("fdp_last_ts", ts);
@@ -971,8 +975,6 @@ async function loadFromSheets(){
                        (bundle.pedidos||[]).length;
     const localTotal = products.length + sales.length + expenses.length +
                        clients.length + pedidos.length;
-    // El sheet gana solo si: es más nuevo, tiene al menos los mismos registros
-    // que el local, y no hay cambios locales sin confirmar
     const sheetWins  = (bundle._ts >= localTs) && (sheetTotal >= localTotal || localTotal === 0) && !localDirty;
     console.log(`[Fontana] sync: sheet_ts=${bundle._ts} local_ts=${localTs} dirty=${localDirty} sheet_n=${sheetTotal} local_n=${localTotal} → sheetWins=${sheetWins}`);
 
