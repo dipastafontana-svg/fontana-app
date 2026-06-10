@@ -895,53 +895,53 @@ function setSyncState(state,msg){
 // ═══════════════════════════════════════════════
 
 // ── LEER ──────────────────────────────────────
+// fetch con credentials:'omit' → no envía cookies de Google
+// → funciona aunque el usuario esté logueado en Chrome
 function sheetGet(key){
-  return new Promise((resolve)=>{
-    const cbName = "_gascb_"+Date.now()+"_"+Math.random().toString(36).slice(2);
-    const script = document.createElement("script");
-    const timer  = setTimeout(()=>{ delete window[cbName]; script.remove(); resolve(null); }, 12000);
-    window[cbName] = (data)=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(data); };
-    script.onerror = ()=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(null); };
-    script.src = `${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${cbName}&t=${Date.now()}`;
-    document.head.appendChild(script);
-  });
+  const url = `${SCRIPT_URL}?key=${encodeURIComponent(key)}&t=${Date.now()}`;
+  return fetch(url, { credentials: "omit", redirect: "follow" })
+    .then(r => r.text())
+    .then(t => {
+      try { return JSON.parse(t); } catch { return null; }
+    })
+    .catch(() => null);
 }
 
-// ── ESCRIBIR — JSONP (funciona en mobile y desktop sin CORS) ──────
-// El Apps Script necesita soportar action=set en doGet (ver instrucciones).
-// Dividimos en chunks de 1500 chars para no superar el límite de URL.
+// ── ESCRIBIR — fetch GET con credentials:omit ─────────────────────
+// Misma técnica: omitir cookies para evitar redirect al login de Google.
+// Chunks de 1500 chars para no superar límite de URL.
 const CHUNK_SIZE = 1500;
 
 function sheetSetChunk(key, valueStr, chunkIdx, totalChunks){
-  return new Promise((resolve)=>{
-    const cbName = "_gasw_"+Date.now()+"_"+Math.random().toString(36).slice(2);
-    const script  = document.createElement("script");
-    const timer   = setTimeout(()=>{ delete window[cbName]; script.remove(); resolve("timeout"); }, 15000);
-    window[cbName] = (r)=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(r&&r.ok?"ok":"error"); };
-    script.onerror = ()=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve("error"); };
-    const params = new URLSearchParams({
-      action: "set",
-      key:    key,
-      value:  valueStr,
-      chunk:  chunkIdx,
-      total:  totalChunks,
-      cb:     cbName,
-      t:      Date.now()
-    });
-    script.src = `${SCRIPT_URL}?${params.toString()}`;
-    document.head.appendChild(script);
+  const params = new URLSearchParams({
+    action: "set",
+    key:    key,
+    value:  valueStr,
+    chunk:  chunkIdx,
+    total:  totalChunks,
+    t:      Date.now()
   });
+  return fetch(`${SCRIPT_URL}?${params.toString()}`, {
+    credentials: "omit",
+    redirect:    "follow"
+  })
+  .then(r => r.text())
+  .then(t => {
+    try {
+      const j = JSON.parse(t);
+      return j.ok ? "ok" : "error";
+    } catch { return "error"; }
+  })
+  .catch(() => "error");
 }
 
 async function sheetSet(key, val){
   const fullStr = JSON.stringify(val);
-  // Dividir en chunks si es necesario
   const chunks = [];
   for(let i = 0; i < fullStr.length; i += CHUNK_SIZE){
     chunks.push(fullStr.slice(i, i + CHUNK_SIZE));
   }
   console.log(`[Fontana] sheetSet key=${key} size=${fullStr.length} chunks=${chunks.length}`);
-  // Enviar chunks secuencialmente
   for(let i = 0; i < chunks.length; i++){
     const result = await sheetSetChunk(key, chunks[i], i, chunks.length);
     if(result !== "ok"){
