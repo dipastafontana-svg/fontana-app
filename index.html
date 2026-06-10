@@ -789,7 +789,7 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
 // ═══════════════════════════════════════════════
 //  CONFIG & STORAGE
 // ═══════════════════════════════════════════════
-const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby6EDu67dAmBqhl_lnAzKTNHYwkPxCD0L0gJr8442Qx35dPOu2ZPIQEd40Acll36D1W/exec";
+const DEFAULT_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzz0FhD0dQBaLHxQlyrKFC2p1eLiNWz6EBZmvmu1DNpdSuyVOxKPMip4MMIS2e71grI/exec";
 let SCRIPT_URL = localStorage.getItem("fdp_script_url") || DEFAULT_SCRIPT_URL;
 // Siempre guardar la URL correcta en localStorage
 if(!localStorage.getItem("fdp_script_url")) localStorage.setItem("fdp_script_url", DEFAULT_SCRIPT_URL);
@@ -907,33 +907,50 @@ function sheetGet(key){
   });
 }
 
-// ── ESCRIBIR ───────────────────────────────────
-// POST no-cors: llega al Apps Script aunque la respuesta sea opaca.
-// Después verificamos con un GET que el _ts quedó guardado.
-function sheetPost(key, val){
-  return fetch(SCRIPT_URL, {
-    method: "POST",
-    mode:   "no-cors",
-    body:   JSON.stringify({ key, value: JSON.stringify(val) })
-  }).then(()=>"sent").catch(()=>"error");
+// ── ESCRIBIR — JSONP (funciona en mobile y desktop sin CORS) ──────
+// El Apps Script necesita soportar action=set en doGet (ver instrucciones).
+// Dividimos en chunks de 1500 chars para no superar el límite de URL.
+const CHUNK_SIZE = 1500;
+
+function sheetSetChunk(key, valueStr, chunkIdx, totalChunks){
+  return new Promise((resolve)=>{
+    const cbName = "_gasw_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+    const script  = document.createElement("script");
+    const timer   = setTimeout(()=>{ delete window[cbName]; script.remove(); resolve("timeout"); }, 15000);
+    window[cbName] = (r)=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(r&&r.ok?"ok":"error"); };
+    script.onerror = ()=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve("error"); };
+    const params = new URLSearchParams({
+      action: "set",
+      key:    key,
+      value:  valueStr,
+      chunk:  chunkIdx,
+      total:  totalChunks,
+      cb:     cbName,
+      t:      Date.now()
+    });
+    script.src = `${SCRIPT_URL}?${params.toString()}`;
+    document.head.appendChild(script);
+  });
 }
 
 async function sheetSet(key, val){
-  // 1. Enviar el POST (no-cors, sin respuesta legible)
-  await sheetPost(key, val);
-  // 2. Esperar un momento para que el Apps Script procese
-  await new Promise(r => setTimeout(r, 1500));
-  // 3. Verificar con GET que el dato llegó (comparar _ts si es un bundle)
-  const saved = await sheetGet(key);
-  if(saved && typeof saved === "object" && val._ts && saved._ts === val._ts){
-    return "ok";
+  const fullStr = JSON.stringify(val);
+  // Dividir en chunks si es necesario
+  const chunks = [];
+  for(let i = 0; i < fullStr.length; i += CHUNK_SIZE){
+    chunks.push(fullStr.slice(i, i + CHUNK_SIZE));
   }
-  // Si val no tiene _ts (ej: dato simple), verificar que no sea null
-  if(!val._ts && saved !== null){
-    return "ok";
+  console.log(`[Fontana] sheetSet key=${key} size=${fullStr.length} chunks=${chunks.length}`);
+  // Enviar chunks secuencialmente
+  for(let i = 0; i < chunks.length; i++){
+    const result = await sheetSetChunk(key, chunks[i], i, chunks.length);
+    if(result !== "ok"){
+      console.error(`[Fontana] sheetSet chunk ${i} failed:`, result);
+      return "error";
+    }
+    console.log(`[Fontana] sheetSet chunk ${i+1}/${chunks.length} ok`);
   }
-  console.warn("[Fontana] sheetSet: POST enviado pero verificación falló", {sent: val._ts, got: saved?._ts});
-  return "error";
+  return "ok";
 }
 
 // ── GUARDAR TODO ───────────────────────────────
