@@ -854,7 +854,7 @@ let expandedProd=null, expandedClient=null, expandedPedido=null;
 
 function lsGet(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
-function lsSetAll(){ lsSet("fdp_products",products); lsSet("fdp_sales",sales); lsSet("fdp_expenses",expenses); lsSet("fdp_clients",clients); lsSet("fdp_pedidos",pedidos); lsSet("fdp_combos",combos); lsSet("fdp_costcfg",costConfig); lsSet("fdp_prodcosts",productCosts); lsSet("fdp_recetas",recetas); lsSet("fdp_insumos",insumos||[]); }
+function lsSetAll(){ lsSet("fdp_products",products); lsSet("fdp_sales",sales); lsSet("fdp_expenses",expenses); lsSet("fdp_clients",clients); lsSet("fdp_pedidos",pedidos); lsSet("fdp_combos",combos); lsSet("fdp_costcfg",costConfig); lsSet("fdp_prodcosts",productCosts); lsSet("fdp_recetas",recetas); lsSet("fdp_insumos",insumos||[]); lsSet("fdp_users",users||[]); }
 
 // ═══════════════════════════════════════════════
 //  HELPERS
@@ -966,7 +966,7 @@ async function saveAll(){
   const ts = Date.now();
   const bundle = { products, sales, expenses, clients,
     pedidos, combos, costConfig, productCosts,
-    recetas, insumos: insumos||[], _ts: ts };
+    recetas, insumos: insumos||[], users: users||[], _ts: ts };
   console.log(`[Fontana] saveAll: ${JSON.stringify(bundle).length} chars, ts=${ts}`);
   const result = await sheetSet("fdp_all", bundle);
   if(result !== "ok"){
@@ -1006,7 +1006,9 @@ async function loadFromSheets(){
       if(bundle.productCosts&& typeof bundle.productCosts==="object") productCosts = bundle.productCosts;
       if(Array.isArray(bundle.recetas))                               recetas      = bundle.recetas;
       if(Array.isArray(bundle.insumos))                               insumos      = bundle.insumos;
+      if(Array.isArray(bundle.users) && bundle.users.length)          users        = bundle.users;
       lsSetAll();
+      lsSet("fdp_users", users);
       localStorage.setItem("fdp_last_ts", bundle._ts);
       localStorage.removeItem("fdp_dirty");
       setSyncState("ok","Sincronizado ✓");
