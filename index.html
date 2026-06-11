@@ -989,29 +989,51 @@ async function loadFromSheets(){
     const localDirty = localStorage.getItem("fdp_dirty") === "1";
     const sheetTotal = (bundle.products||[]).length + (bundle.sales||[]).length +
                        (bundle.expenses||[]).length + (bundle.clients||[]).length +
-                       (bundle.pedidos||[]).length;
+                       (bundle.pedidos||[]).length + (bundle.recetas||[]).length +
+                       (bundle.insumos||[]).length + (bundle.combos||[]).length;
     const localTotal = products.length + sales.length + expenses.length +
-                       clients.length + pedidos.length;
+                       clients.length + pedidos.length + recetas.length +
+                       (insumos||[]).length + combos.length;
     const sheetWins  = (bundle._ts >= localTs) && (sheetTotal >= localTotal || localTotal === 0) && !localDirty;
     console.log(`[Fontana] sync: sheet_ts=${bundle._ts} local_ts=${localTs} dirty=${localDirty} sheet_n=${sheetTotal} local_n=${localTotal} → sheetWins=${sheetWins}`);
 
     if(sheetWins){
-      if(Array.isArray(bundle.products))                              products     = bundle.products;
-      if(Array.isArray(bundle.sales))                                 sales        = bundle.sales;
-      if(Array.isArray(bundle.expenses))                              expenses     = bundle.expenses;
-      if(Array.isArray(bundle.clients))                               clients      = bundle.clients;
-      if(Array.isArray(bundle.pedidos))                               pedidos      = bundle.pedidos;
-      if(Array.isArray(bundle.combos))                                combos       = bundle.combos;
-      if(bundle.costConfig  && typeof bundle.costConfig==="object")   costConfig   = bundle.costConfig;
-      if(bundle.productCosts&& typeof bundle.productCosts==="object") productCosts = bundle.productCosts;
-      if(Array.isArray(bundle.recetas))                               recetas      = bundle.recetas;
-      if(Array.isArray(bundle.insumos))                               insumos      = bundle.insumos;
-      if(Array.isArray(bundle.users) && bundle.users.length)          users        = bundle.users;
+      // Merge inteligente: el Sheet gana en arrays pero nunca borra datos locales
+      // Para cada array, quedarse con el que tenga MÁS elementos
+      const mergeArr = (sheetArr, localArr) => {
+        if(!Array.isArray(sheetArr)) return localArr;
+        if(!Array.isArray(localArr)) return sheetArr;
+        if(sheetArr.length >= localArr.length) return sheetArr;
+        return localArr; // local tiene más → no pisar
+      };
+      products     = mergeArr(bundle.products,     products);
+      sales        = mergeArr(bundle.sales,         sales);
+      expenses     = mergeArr(bundle.expenses,      expenses);
+      clients      = mergeArr(bundle.clients,       clients);
+      pedidos      = mergeArr(bundle.pedidos,       pedidos);
+      combos       = mergeArr(bundle.combos,        combos);
+      recetas      = mergeArr(bundle.recetas,       recetas);
+      insumos      = mergeArr(bundle.insumos,       insumos||[]);
+      if(bundle.costConfig   && typeof bundle.costConfig==="object")   costConfig   = bundle.costConfig;
+      if(bundle.productCosts && typeof bundle.productCosts==="object") productCosts = bundle.productCosts;
+      if(Array.isArray(bundle.users) && bundle.users.length)           users        = bundle.users;
       lsSetAll();
       lsSet("fdp_users", users);
       localStorage.setItem("fdp_last_ts", bundle._ts);
       localStorage.removeItem("fdp_dirty");
-      setSyncState("ok","Sincronizado ✓");
+      // Si el local tenía más datos que el Sheet en algún array,
+      // subir el merge resultante para que el Sheet quede completo
+      const localHadMore = (products.length > (bundle.products||[]).length) ||
+                           (sales.length    > (bundle.sales||[]).length)    ||
+                           (expenses.length > (bundle.expenses||[]).length) ||
+                           (recetas.length  > (bundle.recetas||[]).length)  ||
+                           (insumos.length  > (bundle.insumos||[]).length);
+      if(localHadMore){
+        console.log("[Fontana] local tenía más datos → subiendo merge al Sheet");
+        await saveAll();
+      } else {
+        setSyncState("ok","Sincronizado ✓");
+      }
     } else {
       setSyncState("sync","Subiendo datos locales...");
       await saveAll();
@@ -2516,14 +2538,27 @@ window.addEventListener("load",()=>{
   document.getElementById("app").style.display="block";
   document.getElementById("nav").style.display="flex";
 
+  // Arrancar con datos locales primero — renderiza rápido
+  renderAll();
+
   if(!SCRIPT_URL){
     document.getElementById("setup-panel").style.display="block";
     setSyncState("err","Sin URL — datos locales");
   } else {
-    setSyncState("ok","Listo — tocá ↻ para sincronizar");
+    // Sincronizar automáticamente al abrir
+    loadFromSheets();
+    // Auto-sync cada 5 minutos en segundo plano
+    setInterval(()=>{
+      if(SCRIPT_URL && navigator.onLine) loadFromSheets();
+    }, 5 * 60 * 1000);
   }
-  // Siempre arrancar con datos locales — el usuario sincroniza cuando quiere
-  renderAll();
+
+  // Sincronizar cuando la app vuelve al foco (usuario cambia de pestaña y vuelve)
+  document.addEventListener("visibilitychange", ()=>{
+    if(!document.hidden && SCRIPT_URL && navigator.onLine){
+      loadFromSheets();
+    }
+  });
 });
 
 // ═══════════════════════════════════════════════
