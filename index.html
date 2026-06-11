@@ -894,15 +894,27 @@ function setSyncState(state,msg){
 //  Verificamos el write haciendo un GET inmediato y comparando el _ts.
 // ═══════════════════════════════════════════════
 
-// ── LEER — JSONP simple ───────────────────────
+// ── LEER — JSONP con base64 para evitar SyntaxError con caracteres especiales ──
 function sheetGet(key){
   return new Promise((resolve)=>{
     const cbName = "_gascb_"+Date.now()+"_"+Math.random().toString(36).slice(2);
     const script = document.createElement("script");
     const timer  = setTimeout(()=>{ delete window[cbName]; script.remove(); resolve(null); }, 12000);
-    window[cbName] = (data)=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(data); };
+    window[cbName] = (data)=>{
+      clearTimeout(timer); delete window[cbName]; script.remove();
+      // El Apps Script devuelve cb("b64:xxxxx") cuando viene &enc=1
+      if(typeof data === "string" && data.startsWith("b64:")){
+        try{
+          const decoded = decodeURIComponent(escape(atob(data.slice(4))));
+          resolve(JSON.parse(decoded));
+        }catch{ resolve(null); }
+      } else {
+        resolve(data);
+      }
+    };
     script.onerror = ()=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(null); };
-    script.src = `${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${cbName}&t=${Date.now()}`;
+    // &enc=1 le dice al Apps Script que devuelva el valor en base64
+    script.src = `${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${cbName}&enc=1&t=${Date.now()}`;
     document.head.appendChild(script);
   });
 }
@@ -2557,16 +2569,21 @@ window.addEventListener("load",()=>{
   } else {
     // Sincronizar automáticamente al abrir
     loadFromSheets();
-    // Auto-sync cada 5 minutos en segundo plano
+    // Auto-sync cada 5 minutos
     setInterval(()=>{
       if(SCRIPT_URL && navigator.onLine) loadFromSheets();
     }, 5 * 60 * 1000);
   }
 
-  // Sincronizar cuando la app vuelve al foco (usuario cambia de pestaña y vuelve)
+  // Sincronizar cuando vuelve al foco, máximo 1 vez por minuto
+  let _lastVisibilitySync = 0;
   document.addEventListener("visibilitychange", ()=>{
     if(!document.hidden && SCRIPT_URL && navigator.onLine){
-      loadFromSheets();
+      const now = Date.now();
+      if(now - _lastVisibilitySync > 60000){
+        _lastVisibilitySync = now;
+        loadFromSheets();
+      }
     }
   });
 });
