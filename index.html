@@ -894,55 +894,52 @@ function setSyncState(state,msg){
 //  Verificamos el write haciendo un GET inmediato y comparando el _ts.
 // ═══════════════════════════════════════════════
 
-// ── LEER ──────────────────────────────────────
-// fetch con credentials:'omit' → no envía cookies de Google
-// → funciona aunque el usuario esté logueado en Chrome
+// ── LEER — JSONP via script tag (inmune a sesión de Google) ──────
 function sheetGet(key){
-  const url = `${SCRIPT_URL}?key=${encodeURIComponent(key)}&t=${Date.now()}`;
-  return fetch(url, { credentials: "omit", redirect: "follow" })
-    .then(r => r.text())
-    .then(t => {
-      try { return JSON.parse(t); } catch { return null; }
-    })
-    .catch(() => null);
+  return new Promise((resolve)=>{
+    const cbName = "_gascb_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+    const script = document.createElement("script");
+    const timer  = setTimeout(()=>{ delete window[cbName]; script.remove(); resolve(null); }, 12000);
+    window[cbName] = (data)=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(data); };
+    script.onerror = ()=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(null); };
+    script.src = `${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${cbName}&t=${Date.now()}`;
+    document.head.appendChild(script);
+  });
 }
 
-// ── ESCRIBIR — fetch GET con credentials:omit ─────────────────────
-// Misma técnica: omitir cookies para evitar redirect al login de Google.
-// Chunks de 1500 chars para no superar límite de URL.
+// ── ESCRIBIR — JSONP via script tag (inmune a sesión de Google) ──────
+// Mismo mecanismo que sheetGet: <script> tag no es bloqueado por CORS
+// ni redirigido al login aunque el usuario esté logueado con Google.
 const CHUNK_SIZE = 1500;
 
 function sheetSetChunk(key, valueStr, chunkIdx, totalChunks){
-  const params = new URLSearchParams({
-    action: "set",
-    key:    key,
-    value:  valueStr,
-    chunk:  chunkIdx,
-    total:  totalChunks,
-    t:      Date.now()
+  return new Promise((resolve)=>{
+    const cbName = "_gasw_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+    const script  = document.createElement("script");
+    const timer   = setTimeout(()=>{
+      delete window[cbName]; script.remove();
+      resolve("timeout");
+    }, 15000);
+    window[cbName] = (r)=>{
+      clearTimeout(timer); delete window[cbName]; script.remove();
+      resolve(r && r.ok ? "ok" : "error");
+    };
+    script.onerror = ()=>{
+      clearTimeout(timer); delete window[cbName]; script.remove();
+      resolve("error");
+    };
+    const params = new URLSearchParams({
+      action: "set",
+      key:    key,
+      value:  valueStr,
+      chunk:  chunkIdx,
+      total:  totalChunks,
+      cb:     cbName,
+      t:      Date.now()
+    });
+    script.src = `${SCRIPT_URL}?${params.toString()}`;
+    document.head.appendChild(script);
   });
-  return fetch(`${SCRIPT_URL}?${params.toString()}`, {
-    credentials: "omit",
-    redirect:    "follow"
-  })
-  .then(r => {
-    // Google redirige a script.googleusercontent.com — seguimos el redirect
-    // y leemos el texto de la respuesta final
-    if(!r.ok && r.status !== 0) return "error";
-    return r.text();
-  })
-  .then(t => {
-    if(!t || t.trim() === "") return "ok"; // respuesta vacía = llegó igual
-    try {
-      const j = JSON.parse(t.trim());
-      return j.ok ? "ok" : "error";
-    } catch {
-      // Si no es JSON pero tampoco es error conocido, asumir ok
-      if(t.includes("ok") || t.includes("true")) return "ok";
-      return "error";
-    }
-  })
-  .catch(() => "error");
 }
 
 async function sheetSet(key, val){
@@ -960,15 +957,15 @@ async function sheetSet(key, val){
     }
     console.log(`[Fontana] sheetSet chunk ${i+1}/${chunks.length} ok`);
   }
-  // Verificación final: leer de vuelta con JSONP y comparar _ts
+  // Verificación: leer de vuelta con JSONP y comparar _ts
   if(val && val._ts){
     await new Promise(r=>setTimeout(r, 800));
     const saved = await sheetGet(key);
     if(saved && saved._ts === val._ts){
-      console.log("[Fontana] sheetSet verificado ✓ ts coincide");
+      console.log("[Fontana] sheetSet verificado ✓");
       return "ok";
     }
-    console.warn("[Fontana] sheetSet: chunks enviados pero verificación falló — ts no coincide");
+    console.warn("[Fontana] sheetSet: verificación falló");
     return "error";
   }
   return "ok";
