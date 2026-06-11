@@ -928,10 +928,12 @@ function sheetSetChunk(key, valueStr, chunkIdx, totalChunks){
       clearTimeout(timer); delete window[cbName]; script.remove();
       resolve("error");
     };
+    // Encodear en base64 para evitar que caracteres especiales rompan el JSONP
+    const b64 = btoa(unescape(encodeURIComponent(valueStr)));
     const params = new URLSearchParams({
       action: "set",
       key:    key,
-      value:  valueStr,
+      b64:    b64,        // valor en base64
       chunk:  chunkIdx,
       total:  totalChunks,
       cb:     cbName,
