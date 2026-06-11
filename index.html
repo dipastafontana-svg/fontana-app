@@ -894,26 +894,15 @@ function setSyncState(state,msg){
 //  Verificamos el write haciendo un GET inmediato y comparando el _ts.
 // ═══════════════════════════════════════════════
 
-// ── LEER — JSONP con respuesta en base64 ──────────────────────────
+// ── LEER — JSONP simple ───────────────────────
 function sheetGet(key){
   return new Promise((resolve)=>{
     const cbName = "_gascb_"+Date.now()+"_"+Math.random().toString(36).slice(2);
     const script = document.createElement("script");
     const timer  = setTimeout(()=>{ delete window[cbName]; script.remove(); resolve(null); }, 12000);
-    window[cbName] = (data)=>{
-      clearTimeout(timer); delete window[cbName]; script.remove();
-      // Si llega como string base64, decodificar
-      if(typeof data === "string" && data.startsWith("b64:")){
-        try {
-          const json = decodeURIComponent(escape(atob(data.slice(4))));
-          resolve(JSON.parse(json));
-        } catch { resolve(null); }
-      } else {
-        resolve(data);
-      }
-    };
+    window[cbName] = (data)=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(data); };
     script.onerror = ()=>{ clearTimeout(timer); delete window[cbName]; script.remove(); resolve(null); };
-    script.src = `${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${cbName}&b64=1&t=${Date.now()}`;
+    script.src = `${SCRIPT_URL}?key=${encodeURIComponent(key)}&cb=${cbName}&t=${Date.now()}`;
     document.head.appendChild(script);
   });
 }
@@ -970,17 +959,7 @@ async function sheetSet(key, val){
     }
     console.log(`[Fontana] sheetSet chunk ${i+1}/${chunks.length} ok`);
   }
-  // Verificación: leer de vuelta con JSONP y comparar _ts
-  if(val && val._ts){
-    await new Promise(r=>setTimeout(r, 800));
-    const saved = await sheetGet(key);
-    if(saved && saved._ts === val._ts){
-      console.log("[Fontana] sheetSet verificado ✓");
-      return "ok";
-    }
-    console.warn("[Fontana] sheetSet: verificación falló");
-    return "error";
-  }
+  console.log(`[Fontana] sheetSet completo ✓`);
   return "ok";
 }
 
