@@ -925,12 +925,22 @@ function sheetSetChunk(key, valueStr, chunkIdx, totalChunks){
     credentials: "omit",
     redirect:    "follow"
   })
-  .then(r => r.text())
+  .then(r => {
+    // Google redirige a script.googleusercontent.com — seguimos el redirect
+    // y leemos el texto de la respuesta final
+    if(!r.ok && r.status !== 0) return "error";
+    return r.text();
+  })
   .then(t => {
+    if(!t || t.trim() === "") return "ok"; // respuesta vacía = llegó igual
     try {
-      const j = JSON.parse(t);
+      const j = JSON.parse(t.trim());
       return j.ok ? "ok" : "error";
-    } catch { return "error"; }
+    } catch {
+      // Si no es JSON pero tampoco es error conocido, asumir ok
+      if(t.includes("ok") || t.includes("true")) return "ok";
+      return "error";
+    }
   })
   .catch(() => "error");
 }
@@ -949,6 +959,17 @@ async function sheetSet(key, val){
       return "error";
     }
     console.log(`[Fontana] sheetSet chunk ${i+1}/${chunks.length} ok`);
+  }
+  // Verificación final: leer de vuelta con JSONP y comparar _ts
+  if(val && val._ts){
+    await new Promise(r=>setTimeout(r, 800));
+    const saved = await sheetGet(key);
+    if(saved && saved._ts === val._ts){
+      console.log("[Fontana] sheetSet verificado ✓ ts coincide");
+      return "ok";
+    }
+    console.warn("[Fontana] sheetSet: chunks enviados pero verificación falló — ts no coincide");
+    return "error";
   }
   return "ok";
 }
