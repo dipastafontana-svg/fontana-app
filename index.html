@@ -948,42 +948,37 @@ async function loadFromSheets(){
   if(bundle && typeof bundle === "object" && bundle._ts){
     const localTs    = parseInt(localStorage.getItem("fdp_last_ts")||"0");
     const localDirty = localStorage.getItem("fdp_dirty") === "1";
-    const sheetTotal = (bundle.products||[]).length + (bundle.sales||[]).length +
-                       (bundle.expenses||[]).length + (bundle.clients||[]).length +
-                       (bundle.pedidos||[]).length  + (bundle.recetas||[]).length +
-                       (bundle.insumos||[]).length  + (bundle.combos||[]).length;
-    const localTotal = products.length + sales.length + expenses.length +
-                       clients.length  + pedidos.length + recetas.length +
-                       (insumos||[]).length + combos.length;
-    const sheetWins  = (bundle._ts >= localTs) && (sheetTotal >= localTotal || localTotal === 0) && !localDirty;
-    console.log(`[Fontana] sync: bin_ts=${bundle._ts} local_ts=${localTs} dirty=${localDirty} bin_n=${sheetTotal} local_n=${localTotal} → binWins=${sheetWins}`);
+    console.log(`[Fontana] sync: bin_ts=${bundle._ts} local_ts=${localTs} dirty=${localDirty}`);
 
-    if(sheetWins){
-      const mergeArr = (a, b) => Array.isArray(a) && Array.isArray(b) ? (a.length >= b.length ? a : b) : (Array.isArray(a) ? a : b);
-      products     = mergeArr(bundle.products,  products);
-      sales        = mergeArr(bundle.sales,      sales);
-      expenses     = mergeArr(bundle.expenses,   expenses);
-      clients      = mergeArr(bundle.clients,    clients);
-      pedidos      = mergeArr(bundle.pedidos,    pedidos);
-      combos       = mergeArr(bundle.combos,     combos);
-      recetas      = mergeArr(bundle.recetas,    recetas);
-      insumos      = mergeArr(bundle.insumos,    insumos||[]);
-      if(bundle.costConfig   && typeof bundle.costConfig==="object")   costConfig   = bundle.costConfig;
+    // Regla simple: el más reciente gana.
+    // Si hay cambios locales sin confirmar (dirty), el local manda.
+    const binWins = bundle._ts > localTs && !localDirty;
+
+    if(binWins){
+      // El bin es más nuevo → aplicar todo
+      if(Array.isArray(bundle.products))                              products     = bundle.products;
+      if(Array.isArray(bundle.sales))                                 sales        = bundle.sales;
+      if(Array.isArray(bundle.expenses))                              expenses     = bundle.expenses;
+      if(Array.isArray(bundle.clients))                               clients      = bundle.clients;
+      if(Array.isArray(bundle.pedidos))                               pedidos      = bundle.pedidos;
+      if(Array.isArray(bundle.combos))                                combos       = bundle.combos;
+      if(Array.isArray(bundle.recetas))                               recetas      = bundle.recetas;
+      if(Array.isArray(bundle.insumos))                               insumos      = bundle.insumos;
+      if(bundle.costConfig   && typeof bundle.costConfig==="object")  costConfig   = bundle.costConfig;
       if(bundle.productCosts && typeof bundle.productCosts==="object") productCosts = bundle.productCosts;
-      if(Array.isArray(bundle.users) && bundle.users.length)           users        = bundle.users;
+      if(Array.isArray(bundle.users) && bundle.users.length)          users        = bundle.users;
       lsSetAll();
       lsSet("fdp_users", users);
       localStorage.setItem("fdp_last_ts", bundle._ts);
       localStorage.removeItem("fdp_dirty");
-      const localHadMore = products.length > (bundle.products||[]).length ||
-                           sales.length    > (bundle.sales||[]).length    ||
-                           recetas.length  > (bundle.recetas||[]).length  ||
-                           (insumos||[]).length > (bundle.insumos||[]).length;
-      if(localHadMore){ await saveAll(); }
-      else { setSyncState("ok","Sincronizado ✓"); }
-    } else {
+      setSyncState("ok","Sincronizado ✓");
+    } else if(localTs > bundle._ts || localDirty){
+      // El local es más nuevo o tiene cambios → subir
       setSyncState("sync","Subiendo datos locales...");
       await saveAll();
+    } else {
+      // Misma ts → ya sincronizado
+      setSyncState("ok","Sincronizado ✓");
     }
   } else {
     setSyncState("sync","Primera sync...");
