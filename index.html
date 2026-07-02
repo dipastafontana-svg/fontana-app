@@ -389,6 +389,7 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
       <div class="inner-tabs">
         <button class="inner-tab active" onclick="stockInnerTab('productos',this)">Productos</button>
         <button class="inner-tab" onclick="stockInnerTab('combos',this)">Combos / Promos</button>
+        <button class="inner-tab" onclick="stockInnerTab('produccion',this)">🏭 Producción</button>
       </div>
 
       <!-- PRODUCTOS -->
@@ -478,6 +479,38 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
         </div>
         <div id="combos-list"></div>
       </div>
+
+      <!-- PRODUCCIÓN -->
+      <div id="stock-produccion" style="display:none">
+        <div class="card" style="background:linear-gradient(135deg,#fff8f3,#fdf6ec);border:1.5px solid #f0ddd0">
+          <div class="card-title">🏭 Nueva orden de producción</div>
+          <div style="font-size:11px;color:#aaa;font-family:sans-serif;margin-bottom:10px;line-height:1.5">
+            Planificá cuánto vas a producir, revisá los insumos y al terminar confirmá la cantidad real que salió.
+          </div>
+          <div class="fg">
+            <label>Producto a producir</label>
+            <select id="op-producto" onchange="opProductoChange()">
+              <option value="">— Elegí un producto —</option>
+            </select>
+          </div>
+          <div class="g2">
+            <div class="fg">
+              <label id="op-qty-label">Cantidad planificada</label>
+              <input type="number" id="op-unidades" placeholder="Ej: 10" oninput="opCalcular()" min="1"/>
+            </div>
+            <div class="fg" id="op-real-wrap" style="display:none">
+              <label id="op-real-label">Cantidad real producida</label>
+              <input type="number" id="op-unidades-real" placeholder="= planificado" min="0"/>
+            </div>
+          </div>
+          <div id="op-result" style="display:none"></div>
+          <div id="op-confirm-btn" style="display:none;margin-top:10px">
+            <button class="btn btn-primary" onclick="opConfirmar()" style="width:100%">✓ Confirmar producción</button>
+          </div>
+        </div>
+        <div id="op-history-title" class="section-title" style="font-size:15px;margin-top:18px">📋 Órdenes recientes</div>
+        <div id="op-history"></div>
+      </div>
     </div>
 
     <!-- ══ GASTOS ══ -->
@@ -522,8 +555,8 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
 
       <!-- MÁRGENES POR PRODUCTO -->
       <div id="costos-margenes">
-        <div style="font-size:12px;color:#aaa;font-family:sans-serif;margin-bottom:10px">
-          Tocá un producto para cargar o editar su costo de producción. Podés usar ingredientes crudos, precios fijos o vincular una receta del módulo 📒.
+        <div style="font-size:12px;color:#aaa;font-family:sans-serif;margin-bottom:10px;line-height:1.5">
+          Vinculá cada producto a su(s) receta(s) del módulo 📒 para calcular el costo automáticamente. Si no tiene receta creala primero en 📒 Recetas.
         </div>
         <div id="margenes-list"></div>
       </div>
@@ -631,40 +664,19 @@ label{display:block;font-size:10px;color:#bbb;font-family:sans-serif;margin-bott
         <button class="btn btn-primary" style="width:100%" onclick="saveReceta()">💾 Guardar Receta</button>
       </div>
 
-      <!-- CALCULADOR RÁPIDO -->
+      <!-- ACCESO A PRODUCCIÓN -->
       <div class="card" style="background:linear-gradient(135deg,#fff8f3,#fdf6ec);border:1.5px solid #f0ddd0">
-        <div class="card-title">🔄 Calculador de stock</div>
-        <div style="font-size:11px;color:#aaa;font-family:sans-serif;margin-bottom:10px">Seleccioná una receta y el stock disponible de un ingrediente clave para recalcular todo.</div>
-        <div class="fg">
-          <label>Receta</label>
-          <select id="calc-receta-sel" onchange="calcRecetaChange()">
-            <option value="">— Elegí una receta —</option>
-          </select>
+        <div class="card-title">🏭 Producción</div>
+        <div style="font-size:11px;color:#aaa;font-family:sans-serif;margin-bottom:10px">
+          Para calcular insumos, descontar stock y sumar unidades producidas, usá el módulo de Producción en 📦 Stock.
         </div>
-        <div id="calc-ing-section" style="display:none">
-          <div class="g2">
-            <div class="fg">
-              <label>Ingrediente limitante</label>
-              <select id="calc-ing-sel" onchange="calcRecetaCompute()">
-                <option value="">— Elegí ingrediente —</option>
-              </select>
-            </div>
-            <div class="fg">
-              <label>Stock disponible</label>
-              <div style="display:flex;gap:6px;align-items:center">
-                <input type="number" id="calc-stock-val" placeholder="Ej: 500" oninput="calcRecetaCompute()" style="flex:1"/>
-                <span id="calc-ing-unit" style="font-size:12px;color:#c4622d;font-family:sans-serif;font-weight:700;white-space:nowrap;min-width:24px"></span>
-              </div>
-            </div>
-          </div>
-          <div id="calc-result" style="display:none"></div>
-          <button class="btn btn-secondary btn-sm" onclick="calcRecetaReset()" style="width:100%;margin-top:8px;color:#888">✕ Cancelar cálculo</button>
-        </div>
+        <button class="btn btn-primary btn-sm" onclick="(()=>{ const btn=document.querySelector('.nav-btn[onclick*=stock]'); if(btn){ switchTab('stock',btn); setTimeout(()=>{ const tabs=document.querySelectorAll('.inner-tab'); tabs.forEach(t=>{ if(t.textContent.includes('Producción')){ t.click(); } }); },100); } })()" style="width:100%">→ Ir a Stock · Producción</button>
       </div>
 
       <!-- LISTA DE RECETAS -->
       <div id="recetas-list"></div>
     </div>
+
 
     <!-- ══ CLIENTES ══ -->
     <div id="tab-clientes" class="tab">
@@ -847,6 +859,7 @@ let costConfig = lsGet("fdp_costcfg",   {gas:0,pack:0,mano:0,otros:0});
 let productCosts = lsGet("fdp_prodcosts", {});
 let recetas    = lsGet("fdp_recetas",   []);
 let insumos    = lsGet("fdp_insumos",   []);
+let producciones = lsGet("fdp_producciones", []);
 
 // Temporales (no se guardan)
 let vItems=[], pItems=[], ncItems=[];
@@ -854,7 +867,7 @@ let expandedProd=null, expandedClient=null, expandedPedido=null;
 
 function lsGet(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch{ return def; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
-function lsSetAll(){ lsSet("fdp_products",products); lsSet("fdp_sales",sales); lsSet("fdp_expenses",expenses); lsSet("fdp_clients",clients); lsSet("fdp_pedidos",pedidos); lsSet("fdp_combos",combos); lsSet("fdp_costcfg",costConfig); lsSet("fdp_prodcosts",productCosts); lsSet("fdp_recetas",recetas); lsSet("fdp_insumos",insumos||[]); lsSet("fdp_users",users||[]); }
+function lsSetAll(){ lsSet("fdp_products",products); lsSet("fdp_sales",sales); lsSet("fdp_expenses",expenses); lsSet("fdp_clients",clients); lsSet("fdp_pedidos",pedidos); lsSet("fdp_combos",combos); lsSet("fdp_costcfg",costConfig); lsSet("fdp_prodcosts",productCosts); lsSet("fdp_recetas",recetas); lsSet("fdp_insumos",insumos||[]); lsSet("fdp_users",users||[]); lsSet("fdp_producciones",producciones||[]); }
 
 // ═══════════════════════════════════════════════
 //  HELPERS
@@ -879,40 +892,47 @@ function setSyncState(state,msg){
 // ═══════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════
-//  SYNC — JSONBin.io
-//  API REST con CORS habilitado, sin cookies de Google,
+//  SYNC — Supabase
+//  API REST con CORS habilitado, fetch puro,
 //  funciona desde cualquier dispositivo y sesión.
+//  Un solo registro (id=1) en la tabla fdp_data.
 // ═══════════════════════════════════════════════
-const JSONBIN_KEY = "$2a$10$hRGC4NbDDnEgH2q/kr7JB.ZhtFASHvrKLyzNFKu1PD/Y.M00/5sWm";
-const JSONBIN_BIN = "6a2b2d96f5f4af5e29e28437";
-const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN}`;
+const SUPA_URL = "https://bxaohlcpalnehskpmguk.supabase.co";
+const SUPA_KEY = "sb_publishable_1tO7-pVxN55keeXL0HOBpg_wFtpEXhJ";
+const SUPA_HEADERS = {
+  "Content-Type":  "application/json",
+  "apikey":        SUPA_KEY,
+  "Authorization": "Bearer " + SUPA_KEY
+};
 
 // ── LEER ──────────────────────────────────────
 async function sheetGet(){
   try{
-    const r = await fetch(JSONBIN_URL+"/latest", {
-      headers: { "X-Master-Key": JSONBIN_KEY }
+    const r = await fetch(`${SUPA_URL}/rest/v1/fdp_data?id=eq.1&select=data`, {
+      headers: SUPA_HEADERS
     });
-    if(!r.ok) return null;
-    const j = await r.json();
-    return j.record || null;
-  }catch{ return null; }
+    if(!r.ok){ console.error("[Fontana] Supabase GET error:", r.status); return null; }
+    const rows = await r.json();
+    return rows.length ? rows[0].data : null;
+  }catch(e){ console.error("[Fontana] Supabase GET error:", e); return null; }
 }
 
 // ── ESCRIBIR ───────────────────────────────────
 async function sheetSet(val){
   try{
-    const r = await fetch(JSONBIN_URL, {
-      method:  "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Master-Key": JSONBIN_KEY
-      },
-      body: JSON.stringify(val)
+    // Upsert: si no existe la fila con id=1 la crea, si existe la actualiza
+    const r = await fetch(`${SUPA_URL}/rest/v1/fdp_data`, {
+      method:  "POST",
+      headers: { ...SUPA_HEADERS, "Prefer": "resolution=merge-duplicates" },
+      body:    JSON.stringify({ id: 1, data: val })
     });
-    if(!r.ok){ console.error("[Fontana] JSONBin PUT error:", r.status); return "error"; }
+    if(!r.ok){
+      const txt = await r.text();
+      console.error("[Fontana] Supabase POST error:", r.status, txt);
+      return "error";
+    }
     return "ok";
-  }catch(e){ console.error("[Fontana] JSONBin fetch error:", e); return "error"; }
+  }catch(e){ console.error("[Fontana] Supabase fetch error:", e); return "error"; }
 }
 
 // ── GUARDAR TODO ───────────────────────────────
@@ -928,7 +948,8 @@ async function saveAll(){
   const ts = Date.now();
   const bundle = { products, sales, expenses, clients,
     pedidos, combos, costConfig, productCosts,
-    recetas, insumos: insumos||[], users: users||[], _ts: ts };
+    recetas, insumos: insumos||[], users: users||[],
+    producciones: producciones||[], _ts: ts };
   console.log(`[Fontana] saveAll: ${JSON.stringify(bundle).length} chars, ts=${ts}`);
   const result = await sheetSet(bundle);
   if(result !== "ok"){
@@ -964,6 +985,7 @@ async function loadFromSheets(){
       if(Array.isArray(bundle.combos))                                combos       = bundle.combos;
       if(Array.isArray(bundle.recetas))                               recetas      = bundle.recetas;
       if(Array.isArray(bundle.insumos))                               insumos      = bundle.insumos;
+      if(Array.isArray(bundle.producciones))                          producciones = bundle.producciones;
       if(bundle.costConfig   && typeof bundle.costConfig==="object")  costConfig   = bundle.costConfig;
       if(bundle.productCosts && typeof bundle.productCosts==="object") productCosts = bundle.productCosts;
       if(Array.isArray(bundle.users) && bundle.users.length)          users        = bundle.users;
@@ -1038,7 +1060,9 @@ function stockInnerTab(which,btn){
   btn.classList.add("active");
   document.getElementById("stock-productos").style.display=which==="productos"?"block":"none";
   document.getElementById("stock-combos").style.display=which==="combos"?"block":"none";
+  document.getElementById("stock-produccion").style.display=which==="produccion"?"block":"none";
   if(which==="combos"){ buildNcProdSelect(); renderCombos(); }
+  if(which==="produccion"){ opBuildProductoSelect(); renderOpHistory(); }
 }
 
 function renderAll(){ renderHome(); renderPedidos(); renderVentas(); renderStock(); renderGastos(); renderClientes(); renderCostos(); renderRecetas(); if(document.getElementById('insumos-panel') && document.getElementById('insumos-panel').style.display !== 'none') renderInsumos(); }
@@ -1853,49 +1877,23 @@ function costoInnerTab(which, btn){
 }
 
 // ─── Costo de un ingrediente: qty × precio/unidad (normalizado) ───
-function calcIngCosto(ing){
-  const qty = Number(ing.qty)||0;
-  const precio = Number(ing.precioPorKg)||0; // precio por la unidad seleccionada
-  const unit = ing.unit||'kg';
-  if(!qty || !precio) return 0;
-  // Si la unidad es g o ml → el precio está expresado por kg/L
-  // entonces el costo = (qty/1000) × precio
-  if(unit==='g' || unit==='ml') return (qty/1000) * precio;
-  // Si es kg, L, u → costo = qty × precio
-  return qty * precio;
-}
 
-// ─── Descripción del costo calculado de un ingrediente ───
-function ingCostoDescripcion(ing){
-  const unit = ing.unit||'kg';
-  const precio = Number(ing.precioPorKg)||0;
-  if(!precio) return '';
-  if(unit==='g') return `${fmt(precio)}/kg`;
-  if(unit==='ml') return `${fmt(precio)}/L`;
-  return `${fmt(precio)}/${unit}`;
-}
 
 function calcCostoProducto(prodId){
   const c = productCosts[prodId];
   if(!c) return null;
+  const rids = (c.recetas && c.recetas.length) ? c.recetas.filter(Boolean) : [c.receta1, c.receta2].filter(Boolean);
+  if(!rids.length) return null;
 
-  // Calcular desde recetas vinculadas
-  let costoRecetas = 0;
-  let tieneRecetas = false;
-  if(c.receta1 || c.receta2) {
-    const r1 = c.receta1 ? recetas.find(r=>String(r.id)===String(c.receta1)) : null;
-    const r2 = c.receta2 ? recetas.find(r=>String(r.id)===String(c.receta2)) : null;
-    if(r1 && r1.rendU > 0) { costoRecetas += recetaCostoBase(r1)/r1.rendU; tieneRecetas = true; }
-    if(r2 && r2.rendU > 0) { costoRecetas += recetaCostoBase(r2)/r2.rendU; tieneRecetas = true; }
-  }
+  let costoTotal = 0;
+  let tieneAlgo = false;
+  rids.forEach(rid=>{
+    const r = recetas.find(x=>String(x.id)===String(rid));
+    if(r && r.rendU > 0){ costoTotal += recetaCostoBase(r)/r.rendU; tieneAlgo = true; }
+  });
 
-  // Calcular desde ingredientes manuales
-  const ings = c.ingredients || [];
-  const costoIngs = ings.reduce((a,i) => a + calcIngCosto(i), 0);
-
-  const total = costoRecetas + costoIngs;
-  if(!tieneRecetas && !ings.length) return null;
-  return total > 0 ? total : null;
+  if(!tieneAlgo) return null;
+  return costoTotal > 0 ? costoTotal : null;
 }
 
 function calcMargen(prod){
@@ -1924,51 +1922,9 @@ function renderMargenes(){
     const m = calcMargen(p);
     const cls = m ? margenClass(m.pct) : "";
     const exp = expandedCosto === p.id;
-    const c = productCosts[p.id] || {ingredients:[], notes:""};
-    const ings = c.ingredients || [];
-    const costoTotal = calcCostoProducto(p.id);
+    const c = productCosts[p.id] || {};
     const isCaja = p.stockUnit === "caja";
-    const unidLabel = isCaja ? `caja (${p.packQty||1} und.)` : "unidad";
 
-    const ingRows = ings.map((ing, i) => {
-      const costo = calcIngCosto(ing);
-      return `
-      <div style="background:#fffaf7;border:1.5px solid #f0ddd0;border-radius:10px;padding:10px;margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-          <input placeholder="Ingrediente (ej: Ricota)" value="${escHtml(ing.name||'')}"
-            onblur="ingSetField(${p.id},${i},'name',this.value)"
-            style="flex:1;font-size:13px;padding:6px 9px;font-weight:600;border-radius:8px;border:1.5px solid #f0ddd0;background:#fff;font-family:sans-serif"/>
-          <button onclick="ingRemove(${p.id},${i})" style="background:none;border:none;cursor:pointer;color:#ddd;font-size:18px;padding:0;line-height:1;flex-shrink:0">✕</button>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 70px 1fr;gap:6px;align-items:end">
-          <div>
-            <div style="font-size:9px;color:#bbb;font-family:sans-serif;text-transform:uppercase;margin-bottom:3px">Cantidad que usás</div>
-            <input type="number" placeholder="Ej: 1" value="${ing.qty||''}"
-              onblur="ingSetField(${p.id},${i},'qty',this.value)"
-              style="width:100%;font-size:13px;padding:6px 8px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fff;font-family:sans-serif"/>
-          </div>
-          <div>
-            <div style="font-size:9px;color:#bbb;font-family:sans-serif;text-transform:uppercase;margin-bottom:3px">Unidad</div>
-            <select onchange="ingSetField(${p.id},${i},'unit',this.value)"
-              style="width:100%;font-size:12px;padding:6px 4px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fff;font-family:sans-serif">
-              ${["kg","g","L","ml","u"].map(u=>`<option${ing.unit===u?" selected":""}>${u}</option>`).join("")}
-            </select>
-          </div>
-          <div>
-            <div style="font-size:9px;color:#bbb;font-family:sans-serif;text-transform:uppercase;margin-bottom:3px">Precio por <span id="ulbl-${p.id}-${i}">${ing.unit||'kg'}</span> $</div>
-            <input type="number" placeholder="Ej: 7000"
-              value="${ing.precioPorKg||''}"
-              onblur="ingSetField(${p.id},${i},'precioPorKg',this.value)"
-              style="width:100%;font-size:13px;padding:6px 8px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fff;font-family:sans-serif"/>
-          </div>
-        </div>
-        ${costo > 0 ? `<div style="text-align:right;font-size:12px;color:#5c7a3a;font-family:sans-serif;margin-top:6px;font-weight:600">
-          = ${fmt(costo)} por ${unidLabel}
-        </div>` : ""}
-      </div>`;
-    }).join("");
-
-    // Detectar si tiene recetas vinculadas para el subtítulo
     const tieneRecetasVinc = !!(c.receta1 || c.receta2);
     const recNombres = [
       c.receta1 ? recetas.find(r=>String(r.id)===String(c.receta1))?.nombre : null,
@@ -1983,7 +1939,7 @@ function renderMargenes(){
             ? `<div class="margen-detalle">Costo: ${fmt(m.costo)}/u${isCaja?` · ${fmt(m.costo*(p.packQty||1))}/caja`:''} · Venta: ${fmt(m.precio)} · Ganancia: ${fmt(m.ganancia)}</div>`
             : tieneRecetasVinc
               ? `<div class="margen-detalle" style="color:#888">📒 ${recNombres.join(' + ')} · sin precio de venta</div>`
-              : `<div class="margen-detalle" style="color:#bbb">Sin costo cargado · tocá para configurar</div>`}
+              : `<div class="margen-detalle" style="color:#bbb">Sin receta vinculada · tocá para vincular</div>`}
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           ${m ? `<span class="margen-pct ${cls}">${m.pct}%</span>` : `<span style="font-size:20px">➕</span>`}
@@ -1993,76 +1949,67 @@ function renderMargenes(){
 
       ${exp ? `<div class="costo-expand" onclick="event.stopPropagation()">
 
-        <!-- MODO: Recetas vinculadas -->
         <div style="margin-bottom:12px">
-          <div style="font-size:10px;color:#bbb;font-family:sans-serif;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">📒 Calcular desde recetas</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
-            <div>
-              <div style="font-size:9px;color:#bbb;font-family:sans-serif;text-transform:uppercase;margin-bottom:3px">Receta masa</div>
-              <select onchange="ingSetReceta(${p.id},'receta1',this.value)"
-                style="width:100%;font-size:12px;padding:6px 8px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fff;font-family:sans-serif">
-                <option value="">— Sin masa —</option>
-                ${recetas.map(r=>`<option value="${r.id}"${(c.receta1===String(r.id)||c.receta1===r.id)?'selected':''}>${escHtml(r.nombre)}</option>`).join("")}
-              </select>
-            </div>
-            <div>
-              <div style="font-size:9px;color:#bbb;font-family:sans-serif;text-transform:uppercase;margin-bottom:3px">Receta relleno</div>
-              <select onchange="ingSetReceta(${p.id},'receta2',this.value)"
-                style="width:100%;font-size:12px;padding:6px 8px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fff;font-family:sans-serif">
-                <option value="">— Sin relleno —</option>
-                ${recetas.map(r=>`<option value="${r.id}"${(c.receta2===String(r.id)||c.receta2===r.id)?'selected':''}>${escHtml(r.nombre)}</option>`).join("")}
-              </select>
-            </div>
+          <div style="font-size:10px;color:#bbb;font-family:sans-serif;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">📒 Recetas que componen este producto</div>
+          <div style="font-size:11px;color:#aaa;font-family:sans-serif;margin-bottom:10px;line-height:1.5">
+            Vinculá todas las recetas que hacen falta para producir una unidad. Por ej: una caja de sorrentinos usa "Masa de Sorrentinos" + "Sorrentinos de J & Q". Una pizza puede tener una sola receta.
           </div>
+
+          ${(c.recetas && c.recetas.length ? c.recetas : [c.receta1, c.receta2].filter(Boolean)).map((rid,idx)=>{
+            const r = recetas.find(x=>String(x.id)===String(rid));
+            const costoU = r && r.rendU>0 ? recetaCostoBase(r)/r.rendU : 0;
+            return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+              <select onchange="costoRecetaChange(${p.id},${idx},this.value)"
+                style="flex:1;font-size:12px;padding:6px 8px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fff;font-family:sans-serif">
+                <option value="">— Elegí una receta —</option>
+                ${recetas.map(rx=>`<option value="${rx.id}"${String(rx.id)===String(rid)?'selected':''}>${escHtml(rx.nombre)}${rx.rendU?` (rinde ${rx.rendU} u. · ${fmt(recetaCostoBase(rx)/rx.rendU)}/u)`:''}</option>`).join("")}
+              </select>
+              <button onclick="costoRecetaRemove(${p.id},${idx})" style="background:none;border:none;cursor:pointer;color:#ddd;font-size:16px;padding:0;flex-shrink:0">✕</button>
+            </div>
+            ${r && costoU>0 ? `<div style="font-size:11px;color:#5c7a3a;font-family:sans-serif;margin:-3px 0 8px 2px">↳ ${escHtml(r.nombre)}: ${fmt(costoU)}/u (rinde ${r.rendU} u.)</div>` : r && !r.rendU ? `<div style="font-size:11px;color:#c4622d;font-family:sans-serif;margin:-3px 0 8px 2px">⚠️ Esta receta no tiene rendimiento cargado — editala en 📒 Recetas</div>` : ''}`;
+          }).join("")}
+
+          <button onclick="costoRecetaAdd(${p.id})" class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:8px">+ Agregar receta</button>
+
+          ${!recetas.length ? `<div style="font-size:11px;color:#c4622d;font-family:sans-serif;background:#fff3e0;border-radius:8px;padding:8px 10px">
+            No tenés recetas creadas todavía. Andá a 📒 Recetas → "Nueva" para crear la primera.
+          </div>` : ''}
+
           ${(()=>{
-            const r1 = c.receta1 ? recetas.find(r=>String(r.id)===String(c.receta1)) : null;
-            const r2 = c.receta2 ? recetas.find(r=>String(r.id)===String(c.receta2)) : null;
-            if(!r1 && !r2) return '';
-            const costo1 = r1 && r1.rendU>0 ? recetaCostoBase(r1)/r1.rendU : 0;
-            const costo2 = r2 && r2.rendU>0 ? recetaCostoBase(r2)/r2.rendU : 0;
-            const costoRecetasU = costo1 + costo2;
-            const costoRecetasCaja = isCaja ? costoRecetasU*(p.packQty||1) : null;
-            return `<div style="background:#f0f7ed;border-radius:8px;padding:10px;border:1.5px solid #c3ddb8;font-family:sans-serif;font-size:12px">
-              ${r1?`<div style="color:#5c7a3a;margin-bottom:2px">📒 ${escHtml(r1.nombre)}: <strong>${fmt(costo1)}/u</strong> (rinde ${r1.rendU} u.)</div>`:''}
-              ${r2?`<div style="color:#5c7a3a;margin-bottom:4px">📒 ${escHtml(r2.nombre)}: <strong>${fmt(costo2)}/u</strong> (rinde ${r2.rendU} u.)</div>`:''}
-              <div style="border-top:1px dashed #c3ddb8;padding-top:6px;margin-top:4px;display:flex;justify-content:space-between;align-items:center">
+            const rids = (c.recetas && c.recetas.length) ? c.recetas : [c.receta1, c.receta2].filter(Boolean);
+            if(!rids.length) return '';
+            const recsList = rids.map(rid=>recetas.find(r=>String(r.id)===String(rid))).filter(Boolean);
+            if(!recsList.length) return '';
+            let costoTotal = 0; let sinRend = false;
+            recsList.forEach(r=>{ if(r.rendU>0) costoTotal+=recetaCostoBase(r)/r.rendU; else sinRend=true; });
+            const costosCaja = isCaja ? costoTotal*(p.packQty||1) : null;
+            if(sinRend) return `<div style="background:#fff3e0;border-radius:8px;padding:8px 10px;font-size:11px;color:#c4622d;font-family:sans-serif">⚠️ Alguna receta no tiene rendimiento cargado — el costo no puede calcularse del todo</div>`;
+            return `<div style="background:#f0f7ed;border-radius:8px;padding:10px;border:1.5px solid #c3ddb8;font-family:sans-serif;font-size:13px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
                 <span style="color:#3d7a2a;font-weight:700">Costo total por unidad</span>
-                <span style="font-weight:800;color:#3d7a2a;font-size:14px">${fmt(costoRecetasU)}</span>
+                <span style="font-weight:800;color:#3d7a2a;font-size:15px">${fmt(costoTotal)}</span>
               </div>
-              ${costoRecetasCaja!==null?`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px">
-                <span style="color:#888">Costo por caja (${p.packQty||1} u.)</span>
-                <span style="font-weight:700;color:#3d2b1f">${fmt(costoRecetasCaja)}</span>
+              ${costosCaja!==null?`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;font-size:12px;color:#888">
+                <span>Costo por caja (${p.packQty||1} u.)</span>
+                <span style="font-weight:700;color:#3d2b1f">${fmt(costosCaja)}</span>
               </div>`:''}
             </div>`;
           })()}
         </div>
 
-        <hr class="divider" style="margin:10px 0"/>
-
-        <!-- MODO: Ingredientes manuales -->
-        <div style="font-size:10px;color:#bbb;font-family:sans-serif;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🧂 O cargar ingredientes directos</div>
-        <div style="font-size:11px;color:#aaa;font-family:sans-serif;margin-bottom:8px;line-height:1.5">
-          Para productos sin receta: ingresá la cantidad que usás y el precio por kg/unidad.
-        </div>
-        ${ingRows}
-        <button onclick="ingAdd(${p.id})" class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px">+ Agregar ingrediente</button>
-
-        ${costoTotal !== null ? `
-        <div style="background:#fff;border-radius:10px;padding:12px;border:1.5px solid #f0ddd0">
+        ${m ? `
+        <div style="background:#fff;border-radius:10px;padding:12px;border:1.5px solid #f0ddd0;margin-top:8px">
           <div style="display:flex;justify-content:space-between;font-family:sans-serif;font-size:13px;color:#888;margin-bottom:4px">
-            <span>Costo de producción / ${unidLabel}</span><span style="font-weight:700;color:#3d2b1f">${fmt(costoTotal)}</span>
+            <span>Precio de venta / ${isCaja?`caja (${p.packQty||1} u.)`:'unidad'}</span>
+            <span style="font-weight:700;color:#c4622d">${fmt(p.unitPrice)}</span>
           </div>
-          <div style="display:flex;justify-content:space-between;font-family:sans-serif;font-size:13px;color:#888;margin-bottom:4px">
-            <span>Precio de venta / ${unidLabel}</span><span style="font-weight:700;color:#c4622d">${fmt(p.unitPrice)}</span>
-          </div>
-          ${m ? `
           <div style="border-top:1px dashed #f0ddd0;margin-top:6px;padding-top:8px;display:flex;justify-content:space-between;font-family:sans-serif;font-size:15px;font-weight:800">
             <span>Ganancia</span>
             <span style="color:${m.ganancia>=0?'#5c7a3a':'#e74c3c'}">${fmt(m.ganancia)} (${m.pct}%)</span>
           </div>
           <div style="margin-top:8px;background:${m.pct>=50?'#d4edda':m.pct>=25?'#fff3cd':'#f8d7da'};border-radius:8px;padding:6px 10px;text-align:center;font-family:sans-serif;font-size:12px;font-weight:700;color:${m.pct>=50?'#155724':m.pct>=25?'#856404':'#721c24'}">
             ${m.pct>=50?'✅ Margen saludable':m.pct>=25?'⚠️ Margen ajustado':'🔴 Margen bajo — revisá precios'}
-          </div>` : ""}
+          </div>
         </div>` : ""}
 
         <button onclick="toggleCostoExpand(${p.id})" class="btn btn-secondary btn-sm" style="width:100%;margin-top:10px;color:#888">✕ Cerrar</button>
@@ -2084,50 +2031,37 @@ function toggleCostoExpand(id){
 }
 
 function getOrCreateCost(prodId){
-  if(!productCosts[prodId]) productCosts[prodId] = {ingredients:[], notes:""};
+  if(!productCosts[prodId]) productCosts[prodId] = {};
   return productCosts[prodId];
 }
 
-function ingAdd(prodId){
+function costoRecetaAdd(prodId){
   const c = getOrCreateCost(prodId);
-  c.ingredients.push({name:"", qty:"", unit:"kg", precioPorKg:""});
+  if(!c.recetas) c.recetas = [c.receta1, c.receta2].filter(Boolean);
+  c.recetas.push("");
   lsSet("fdp_prodcosts", productCosts);
   expandedCosto = prodId;
   renderMargenes();
 }
 
-function ingRemove(prodId, idx){
+function costoRecetaRemove(prodId, idx){
   const c = getOrCreateCost(prodId);
-  c.ingredients.splice(idx, 1);
+  if(!c.recetas) c.recetas = [c.receta1, c.receta2].filter(Boolean);
+  c.recetas.splice(idx, 1);
   lsSet("fdp_prodcosts", productCosts);
   saveAll();
   expandedCosto = prodId;
   renderMargenes();
 }
 
-function ingSetField(prodId, idx, field, val){
+function costoRecetaChange(prodId, idx, val){
   const c = getOrCreateCost(prodId);
-  if(!c.ingredients[idx]) return;
-  const numFields = ["qty","precioPorKg"];
-  c.ingredients[idx][field] = numFields.includes(field) ? (Number(val)||"") : val;
+  if(!c.recetas) c.recetas = [c.receta1, c.receta2].filter(Boolean);
+  c.recetas[idx] = val || "";
   lsSet("fdp_prodcosts", productCosts);
   saveAll();
+  expandedCosto = prodId;
   renderMargenes();
-}
-
-function ingSetReceta(prodId, field, val){
-  const c = getOrCreateCost(prodId);
-  c[field] = val || null;
-  lsSet("fdp_prodcosts", productCosts);
-  saveAll();
-  renderMargenes();
-}
-
-function ingNote(prodId, val){
-  const c = getOrCreateCost(prodId);
-  c.notes = val;
-  lsSet("fdp_prodcosts", productCosts);
-  saveAll();
 }
 
 // ─── RESUMEN MENSUAL ─────────────────────────────
@@ -2490,12 +2424,12 @@ window.addEventListener("load",()=>{
     const localDirty = localStorage.getItem("fdp_dirty") === "1";
     if(localDirty) return; // hay cambios locales pendientes → no pisar
     try{
-      const r = await fetch(JSONBIN_URL+"/latest", {
-        headers: { "X-Master-Key": JSONBIN_KEY }
+      const r = await fetch(`${SUPA_URL}/rest/v1/fdp_data?id=eq.1&select=data`, {
+        headers: SUPA_HEADERS
       });
       if(!r.ok) return;
-      const j = await r.json();
-      const bundle = j.record;
+      const rows = await r.json();
+      const bundle = rows.length ? rows[0].data : null;
       if(bundle && bundle._ts && bundle._ts > localTs){
         console.log(`[Fontana] auto-sync: bin más nuevo (${bundle._ts} > ${localTs}) → aplicando`);
         if(Array.isArray(bundle.products))                              products     = bundle.products;
@@ -2506,6 +2440,7 @@ window.addEventListener("load",()=>{
         if(Array.isArray(bundle.combos))                                combos       = bundle.combos;
         if(Array.isArray(bundle.recetas))                               recetas      = bundle.recetas;
         if(Array.isArray(bundle.insumos))                               insumos      = bundle.insumos;
+        if(Array.isArray(bundle.producciones))                          producciones = bundle.producciones;
         if(bundle.costConfig   && typeof bundle.costConfig==="object")  costConfig   = bundle.costConfig;
         if(bundle.productCosts && typeof bundle.productCosts==="object") productCosts = bundle.productCosts;
         if(Array.isArray(bundle.users) && bundle.users.length)          users        = bundle.users;
@@ -2552,7 +2487,7 @@ function toggleInsumos(){
 }
 
 function addInsumo(){
-  insumos.push({id: Date.now(), nombre: "", precioPorKg: ""});
+  insumos.push({id: Date.now(), nombre: "", precioPorKg: "", stock: 0});
   lsSet("fdp_insumos", insumos);
   renderInsumos();
   // focus en el último nombre
@@ -2573,7 +2508,7 @@ function removeInsumo(id){
 function insumoSet(id, field, val){
   const ins = insumos.find(i=>i.id===id);
   if(!ins) return;
-  ins[field] = field === "precioPorKg" ? (Number(val)||"") : val;
+  ins[field] = (field === "precioPorKg" || field === "stock") ? (Number(val)||0) : val;
   lsSet("fdp_insumos", insumos);
   saveAll();
   renderRecFormIngs(); // refrescar costos en el form activo
@@ -2599,8 +2534,9 @@ function renderInsumos(){
   el.innerHTML = insumos.map(ins=>{
     const unit = ins.unit||"g";
     const u = UNITS.find(x=>x.val===unit)||UNITS[0];
+    const stockUnitLbl = unit==="g"?"g":unit==="ml"?"ml":unit==="kg"?"kg":unit==="L"?"L":unit==="u"?"u":"doc";
     return `
-    <div style="display:grid;grid-template-columns:1fr 90px 80px 24px;gap:5px;align-items:center;margin-bottom:7px">
+    <div style="display:grid;grid-template-columns:1fr 80px 70px 70px 24px;gap:5px;align-items:center;margin-bottom:7px">
       <input class="ins-nombre" placeholder="Ej: Ricota, Harina..." value="${escHtml(ins.nombre||'')}"
         onblur="insumoSet(${ins.id},'nombre',this.value)"
         style="font-size:13px;padding:7px 10px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fffaf7;font-family:sans-serif"/>
@@ -2614,9 +2550,14 @@ function renderInsumos(){
         style="font-size:12px;padding:6px 4px;border-radius:8px;border:1.5px solid #f0ddd0;background:#fffaf7;font-family:sans-serif">
         ${UNITS.map(x=>`<option value="${x.val}"${unit===x.val?' selected':''}>${x.lbl}</option>`).join("")}
       </select>
+      <div style="position:relative">
+        <input type="number" placeholder="Stock" value="${ins.stock||0}"
+          onblur="insumoSet(${ins.id},'stock',this.value)"
+          style="font-size:13px;padding:7px 8px;text-align:right;width:100%;border-radius:8px;border:1.5px solid #f0ddd0;background:#fffaf7;font-family:sans-serif"/>
+      </div>
       <button onclick="removeInsumo(${ins.id})" style="background:none;border:none;cursor:pointer;color:#ddd;font-size:16px;padding:0">✕</button>
     </div>
-    <div style="font-size:9px;color:#bbb;font-family:sans-serif;margin:-5px 0 6px 2px">${u.precioLbl}</div>
+    <div style="font-size:9px;color:#bbb;font-family:sans-serif;margin:-5px 0 6px 2px">${u.precioLbl} · stock en ${stockUnitLbl}</div>
     `}).join("");
 }
 
@@ -2866,38 +2807,254 @@ function fmtQty(val, unit){
 }
 
 // ─── Recalcular receta por stock ──────────────────
-function recetaRecalculate(receta, ingIdx, stockDisponible){
-  const ing = receta.ingredientes[ingIdx];
-  if(!ing) return null;
-  const ri = resolveIng(ing);
-  const cantBase = toBaseUnit(ri.qty, ri.unit);
-  if(!cantBase) return null;
-  const stockBase = toBaseUnit(stockDisponible, ri.unit);
-  const factor = stockBase / cantBase;
-
-  const ingredientesAdj = receta.ingredientes.map(i => {
-    const ri2 = resolveIng(i);
-    const qtyAdj = toBaseUnit(ri2.qty, ri2.unit) * factor;
-    const costoAdj = ri2.precioBase
-      ? (()=>{
-          const base = (ri2.unit==='g'||ri2.unit==='ml') ? (ri2.qty/1000)*ri2.precioBase : ri2.qty*ri2.precioBase;
-          return base * factor;
-        })()
-      : 0;
-    return { ...i, qtyAdj, costoAdj };
-  });
-
-  const costoTotal = ingredientesAdj.reduce((a,i)=>a+(i.costoAdj||0), 0);
-  const rendGAdj   = (receta.rendG||0) * factor;
-  const rendUAdj   = receta.pesoUnitG > 0 ? Math.floor(rendGAdj/receta.pesoUnitG) : Math.round((receta.rendU||0)*factor);
-  return { factor, ingredientesAdj, costoTotal, rendGAdj, rendUAdj };
-}
-
 // ─── Calcular costo total base de receta ─────────
 function recetaCostoBase(receta){
   return (receta.ingredientes||[]).reduce((a,i)=>{
     return a + calcIngCostoFromInsumo(i);
   }, 0);
+}
+
+// ═══════════════════════════════════════════════
+//  MÓDULO DE PRODUCCIÓN
+//  Flujo: elegir producto → unidades a producir →
+//  calcular insumos necesarios desde la(s) receta(s)
+//  vinculada(s) en productCosts → al confirmar:
+//  descuenta insumos, suma stock del producto.
+// ═══════════════════════════════════════════════
+
+function opBuildProductoSelect(){
+  const sel = document.getElementById("op-producto");
+  if(!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">— Elegí un producto —</option>` +
+    CATS.map(cat=>{
+      const prods = products.filter(p=>p.category===cat);
+      if(!prods.length) return "";
+      return `<optgroup label="${cat}">${prods.map(p=>
+        `<option value="${p.id}">${escHtml(p.name)}${p.stockUnit==='caja'?' (por caja)':''}</option>`).join("")}</optgroup>`;
+    }).join("");
+  if(prev) sel.value = prev;
+}
+
+function opProductoChange(){
+  const prodId = document.getElementById("op-producto").value;
+  const prod = products.find(p=>String(p.id)===String(prodId));
+  document.getElementById("op-unidades").value = "";
+  document.getElementById("op-result").style.display = "none";
+  document.getElementById("op-confirm-btn").style.display = "none";
+  document.getElementById("op-real-wrap").style.display = "none";
+  if(prod){
+    const isCaja = prod.stockUnit === "caja";
+    document.getElementById("op-qty-label").textContent = isCaja
+      ? `Cajas a producir (${prod.packQty||12} u. c/u)` : "Unidades a producir";
+    document.getElementById("op-real-label").textContent = isCaja
+      ? "Cajas reales producidas" : "Unidades reales producidas";
+  }
+}
+
+// Devuelve las recetas vinculadas a un producto desde productCosts
+function opGetRecetasDeProducto(prodId){
+  const c = productCosts[prodId];
+  if(!c) return [];
+  const rids = (c.recetas && c.recetas.length) ? c.recetas.filter(Boolean) : [c.receta1, c.receta2].filter(Boolean);
+  return rids.map(rid=>recetas.find(r=>String(r.id)===String(rid))).filter(Boolean);
+}
+
+function opCalcular(){
+  const prodId   = document.getElementById("op-producto").value;
+  const cantidad = Number(document.getElementById("op-unidades").value)||0;
+  const resultEl  = document.getElementById("op-result");
+  const confirmEl = document.getElementById("op-confirm-btn");
+  const realWrap  = document.getElementById("op-real-wrap");
+
+  if(!prodId || !cantidad){
+    resultEl.style.display="none"; confirmEl.style.display="none"; realWrap.style.display="none";
+    return;
+  }
+
+  const prod = products.find(p=>String(p.id)===String(prodId));
+  if(!prod){ resultEl.style.display="none"; return; }
+
+  const isCaja  = prod.stockUnit === "caja";
+  const packQty = prod.packQty || 12;
+  const unidadesTotales = isCaja ? cantidad * packQty : cantidad;
+  const unidadLabel = isCaja ? `${cantidad} caja${cantidad!==1?"s":""} (${unidadesTotales} unidades)` : `${cantidad} unidades`;
+
+  const recetasVinc = opGetRecetasDeProducto(prodId);
+  if(!recetasVinc.length){
+    resultEl.style.display = "block";
+    resultEl.innerHTML = `<div style="background:#fff3cd;border-left:4px solid #ffc107;border-radius:0 8px 8px 0;padding:10px 14px;margin-top:10px;font-family:sans-serif;font-size:13px;color:#856404">
+      ⚠️ Este producto no tiene receta vinculada. Andá a 💰 Costos → vinculá una receta primero.
+    </div>`;
+    confirmEl.style.display="none"; realWrap.style.display="none";
+    return;
+  }
+
+  const insumosNec = {};
+  let costoTotal = 0;
+  let sinRendimiento = false;
+
+  recetasVinc.forEach(r=>{
+    if(!r.rendU || r.rendU <= 0){ sinRendimiento = true; return; }
+    const factor = unidadesTotales / r.rendU;
+    (r.ingredientes||[]).forEach(ing=>{
+      const ri = resolveIng(ing);
+      const gramos = ri.qty * factor;
+      if(ing.insId){
+        const key = String(ing.insId);
+        insumosNec[key] = (insumosNec[key]||0) + gramos;
+      }
+    });
+    costoTotal += recetaCostoBase(r) * factor;
+  });
+
+  if(sinRendimiento){
+    resultEl.style.display="block";
+    resultEl.innerHTML=`<div style="background:#f8d7da;border-left:4px solid #e74c3c;border-radius:0 8px 8px 0;padding:10px 14px;margin-top:10px;font-family:sans-serif;font-size:13px;color:#721c24">
+      🔴 Alguna receta vinculada no tiene rendimiento cargado. Editala en 📒 Recetas para poder calcular.
+    </div>`;
+    confirmEl.style.display="none"; realWrap.style.display="none";
+    return;
+  }
+
+  const filas = Object.entries(insumosNec).map(([insId, gramos])=>{
+    const ins = insumos.find(i=>String(i.id)===insId);
+    if(!ins) return { nombre:"(insumo eliminado)", necesario:gramos, stock:0, alcanza:false, insId };
+    const unit = ins.unit||"g";
+    const stockEnGramos = (unit==="kg"||unit==="L") ? (Number(ins.stock)||0)*1000 : Number(ins.stock)||0;
+    return { nombre:ins.nombre, necesario:gramos, stock:stockEnGramos, alcanza:stockEnGramos>=gramos, insId, unit };
+  });
+
+  const algunoFalta = filas.some(f=>!f.alcanza);
+
+  resultEl.style.display = "block";
+  resultEl.innerHTML = `
+    <div style="background:#fdf0e8;border-radius:10px;padding:12px;margin-top:10px">
+      <div style="font-size:11px;font-family:sans-serif;font-weight:700;color:#c4622d;text-transform:uppercase;margin-bottom:8px">
+        🧂 Insumos para ${unidadLabel}
+      </div>
+      <table class="rec-ing-table">
+        <thead><tr><th>Insumo</th><th style="text-align:center">Necesitás</th><th style="text-align:right">Tenés</th><th style="text-align:right"></th></tr></thead>
+        <tbody>${filas.map(f=>`<tr>
+          <td>${escHtml(f.nombre)}</td>
+          <td style="text-align:center">${fmtQty(f.necesario,'g')}</td>
+          <td style="text-align:right;color:${f.alcanza?'#5c7a3a':'#e74c3c'}">${fmtQty(f.stock,'g')}</td>
+          <td style="text-align:right">${f.alcanza?'✅':'⚠️'}</td>
+        </tr>`).join("")}</tbody>
+      </table>
+      <div style="border-top:1px dashed #e0c8b0;margin-top:10px;padding-top:8px;display:flex;justify-content:space-between;font-family:sans-serif;font-size:13px">
+        <span style="color:#888">Costo estimado</span>
+        <span style="font-weight:700;color:#7a4f3a">${fmt(costoTotal)} (${fmt(costoTotal/cantidad)}/${isCaja?'caja':'u.'})</span>
+      </div>
+    </div>
+    ${algunoFalta?`<div style="background:#fff3cd;border-left:4px solid #ffc107;border-radius:0 8px 8px 0;padding:8px 12px;margin-top:8px;font-family:sans-serif;font-size:12px;color:#856404">
+      ⚠️ Stock insuficiente en algunos insumos. Podés confirmar igual — el stock quedará negativo como aviso.
+    </div>`:""}
+  `;
+
+  realWrap.style.display = "block";
+  document.getElementById("op-unidades-real").placeholder = `${cantidad} (= planificado)`;
+  confirmEl.style.display = "block";
+  confirmEl.querySelector("button").textContent = `✓ Confirmar — sumar ${unidadLabel} a stock`;
+
+  window._opPendiente = { prodId, cantPlanif:cantidad, filas, costoTotal, prodName:prod.name, isCaja, packQty };
+}
+
+async function opConfirmar(){
+  const op = window._opPendiente;
+  if(!op) return;
+
+  // Cantidad real producida — si no se completó, usar la planificada
+  const realInput = Number(document.getElementById("op-unidades-real").value);
+  const cantidadReal = realInput > 0 ? realInput : op.cantPlanif;
+  // Factor de ajuste entre lo planificado y lo realmente producido
+  const factorAjuste = op.cantPlanif > 0 ? cantidadReal / op.cantPlanif : 1;
+
+  // Descontar insumos — siempre según lo PLANIFICADO (lo que realmente se usó/gastó),
+  // no según lo que finalmente salió bien
+  op.filas.forEach(f=>{
+    if(!f.insId) return;
+    const ins = insumos.find(i=>String(i.id)===String(f.insId));
+    if(!ins) return;
+    const unit = ins.unit||"g";
+    let descuento = f.necesario;
+    if(unit==="kg" || unit==="L") descuento = f.necesario/1000;
+    ins.stock = (Number(ins.stock)||0) - descuento;
+  });
+
+  // Sumar al stock del producto terminado SOLO la cantidad real
+  const prod = products.find(p=>String(p.id)===String(op.prodId));
+  if(prod) prod.stock = (Number(prod.stock)||0) + cantidadReal;
+
+  const costoAjustado = op.costoTotal; // el costo de insumos gastados no cambia
+  const unidadTxt = op.isCaja ? "cajas" : "unidades";
+
+  producciones.unshift({
+    id: Date.now(),
+    date: today(),
+    prodId: op.prodId,
+    prodName: op.prodName,
+    cantPlanif: op.cantPlanif,
+    cantReal: cantidadReal,
+    unidad: unidadTxt,
+    costoTotal: costoAjustado,
+    userId: currentUser||"",
+  });
+
+  // Limpiar form
+  document.getElementById("op-unidades").value = "";
+  document.getElementById("op-unidades-real").value = "";
+  document.getElementById("op-result").style.display = "none";
+  document.getElementById("op-confirm-btn").style.display = "none";
+  document.getElementById("op-real-wrap").style.display = "none";
+  window._opPendiente = null;
+
+  renderStock();
+  renderOpHistory();
+  await saveAll();
+
+  const diff = cantidadReal - op.cantPlanif;
+  const diffTxt = diff !== 0 ? ` (${diff>0?'+':''}${diff} vs. planificado)` : "";
+  toast(`✓ Producción registrada — +${cantidadReal} ${unidadTxt} de ${op.prodName}${diffTxt}`);
+}
+
+function renderOpHistory(){
+  const el = document.getElementById("op-history");
+  if(!el) return;
+  if(!producciones.length){
+    el.innerHTML = `<div class="empty">Sin órdenes de producción registradas aún</div>`;
+    return;
+  }
+  el.innerHTML = producciones.slice(0,15).map(op=>{
+    const cantReal = op.cantReal!=null ? op.cantReal : op.unidades;
+    const cantPlan = op.cantPlanif!=null ? op.cantPlanif : op.unidades;
+    const unidad   = op.unidad || "unidades";
+    const diff = cantReal - cantPlan;
+    return `
+    <div class="row" style="display:flex;justify-content:space-between;align-items:center">
+      <div>
+        <div style="font-family:sans-serif;font-weight:600;color:#3d2b1f;font-size:13px">
+          ${escHtml(op.prodName)} ${op.userId?userChip(op.userId):""}
+        </div>
+        <div style="font-size:11px;color:#aaa;font-family:sans-serif">
+          ${fd(op.date)} · ${cantReal} ${unidad}${diff!==0?` <span style="color:${diff<0?'#e74c3c':'#5c7a3a'}">(planificado: ${cantPlan})</span>`:""}
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-weight:bold;color:#7a4f3a;font-size:13px">${fmt(op.costoTotal)}</div>
+        <button class="btn-icon" onclick="deleteOp(${op.id})" style="color:#ddd;font-size:13px">🗑</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function deleteOp(id){
+  confirmDelete("¿Eliminar esta orden de producción? (no revierte el stock)", async()=>{
+    producciones = producciones.filter(o=>o.id!==id);
+    renderOpHistory();
+    await saveAll();
+    toast("🗑 Orden eliminada");
+  });
 }
 
 // ─── Render lista de recetas ──────────────────────
